@@ -1,0 +1,7 @@
+[build]
+buildCommand = "npm install && npm install --prefix server"
+
+[deploy]
+startCommand = "npm run start:mp"
+healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
