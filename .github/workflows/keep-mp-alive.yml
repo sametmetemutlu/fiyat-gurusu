@@ -1,0 +1,24 @@
+# Render free tier 15 dk boşta kalınca uyur — her 8 dk'da bir ping atar.
+# GitHub → Settings → Secrets → MP_SERVER_URL = https://fiyat-gurusu-mp.onrender.com
+
+name: Keep MP server alive
+
+on:
+  schedule:
+    - cron: "*/8 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render MP server
+        run: |
+          if [ -z "$MP_SERVER_URL" ]; then
+            echo "MP_SERVER_URL secret tanımlı değil, atlanıyor."
+            exit 0
+          fi
+          curl -fsS --max-time 30 "${MP_SERVER_URL}/"
+          echo "OK — $(date -u)"
+        env:
+          MP_SERVER_URL: ${{ secrets.MP_SERVER_URL }}
