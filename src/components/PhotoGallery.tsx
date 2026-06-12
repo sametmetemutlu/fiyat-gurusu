@@ -21,15 +21,14 @@ export default function PhotoGallery({
     <div className="relative w-full aspect-[4/3] bg-black/5 rounded-2xl overflow-hidden select-none shadow-sm">
       {photos.length > 0 ? (
         <img
-          key={safeIdx}
           src={photos[safeIdx]}
           alt={alt}
-          className="w-full h-full object-cover animate-pop"
+          className="absolute inset-0 w-full h-full object-cover"
           onError={() => setBroken((b) => ({ ...b, [safeIdx]: true }))}
           draggable={false}
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-muted">
+        <div className="absolute inset-0 flex items-center justify-center text-muted">
           Görsel yok
         </div>
       )}
@@ -68,7 +67,7 @@ export default function PhotoGallery({
         {safeIdx + 1}/{photos.length}
       </div>
       {valid.length === 0 && photos.length > 0 && (
-        <div className="absolute inset-0 grid place-items-center text-muted bg-black/5">
+        <div className="absolute inset-0 z-10 grid place-items-center text-muted bg-black/5">
           Görsel yüklenemedi
         </div>
       )}

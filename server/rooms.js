@@ -45,7 +45,11 @@ const DISCONNECT_GRACE_MS = 120_000;
  * @property {NodeJS.Timeout|null} timer
  * @property {object|null} reveal
  * @property {object[]|null} finalRankings
+ * @property {string|null} displaySocketId
+ * @property {NodeJS.Timeout|null} displayDisconnectTimer
  */
+
+const DISPLAY_HOST_ID = "__display__";
 
 class RoomManager {
   constructor() {
@@ -69,13 +73,20 @@ class RoomManager {
     return [...room.players.values()].filter((p) => p.socketId);
   }
 
-  createRoom(socketId, playerName, config = {}) {
-    const code = generateCode(this.rooms);
-    const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    /** @type {Room} */
-    const room = {
+  isMonitorRoom(room) {
+    return room.hostId === DISPLAY_HOST_ID;
+  }
+
+  _isHost(socketId, room) {
+    if (room.displaySocketId === socketId) return true;
+    const player = [...room.players.values()].find((p) => p.socketId === socketId);
+    return !!player && player.id === room.hostId;
+  }
+
+  _baseRoom(code, config = {}) {
+    return {
       code,
-      hostId: playerId,
+      hostId: DISPLAY_HOST_ID,
       phase: "LOBBY",
       players: new Map(),
       config: {
@@ -90,7 +101,47 @@ class RoomManager {
       timer: null,
       reveal: null,
       finalRankings: null,
+      displaySocketId: null,
+      displayDisconnectTimer: null,
     };
+  }
+
+  createDisplayRoom(socketId, config = {}) {
+    const code = generateCode(this.rooms);
+    const room = this._baseRoom(code, config);
+    room.displaySocketId = socketId;
+    this.rooms.set(code, room);
+    this.socketRoom.set(socketId, code);
+    return { room };
+  }
+
+  reconnectDisplay(code, socketId) {
+    const room = this.getRoom(code);
+    if (!room) return { error: "Oda bulunamadı" };
+    if (!this.isMonitorRoom(room)) return { error: "Bu oda monitör modunda değil" };
+    if (room.displaySocketId && room.displaySocketId !== socketId) {
+      return { error: "Monitör zaten bağlı" };
+    }
+    this._clearDisplayDisconnectTimer(room);
+    room.displaySocketId = socketId;
+    room.hostId = DISPLAY_HOST_ID;
+    this.socketRoom.set(socketId, code);
+    return { room };
+  }
+
+  _clearDisplayDisconnectTimer(room) {
+    if (room.displayDisconnectTimer) {
+      clearTimeout(room.displayDisconnectTimer);
+      room.displayDisconnectTimer = null;
+    }
+  }
+
+  createRoom(socketId, playerName, config = {}) {
+    const code = generateCode(this.rooms);
+    const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    /** @type {Room} */
+    const room = this._baseRoom(code, config);
+    room.hostId = playerId;
     room.players.set(playerId, this._makePlayer(playerId, socketId, playerName));
     this.rooms.set(code, room);
     this.socketRoom.set(socketId, code);
@@ -152,8 +203,7 @@ class RoomManager {
   updateConfig(socketId, patch) {
     const room = this.getRoomBySocket(socketId);
     if (!room || room.phase !== "LOBBY") return { error: "Ayar değiştirilemez" };
-    const player = [...room.players.values()].find((p) => p.socketId === socketId);
-    if (!player || player.id !== room.hostId) return { error: "Sadece host ayarlayabilir" };
+    if (!this._isHost(socketId, room)) return { error: "Sadece host ayarlayabilir" };
     if (patch.mode === "classic" || patch.mode === "higherlower") {
       room.config.mode = patch.mode;
       const opts = room.config.mode === "classic" ? CLASSIC_MP_LISTING_OPTIONS : HL_MP_ROUND_OPTIONS;
@@ -169,8 +219,7 @@ class RoomManager {
   startGame(socketId) {
     const room = this.getRoomBySocket(socketId);
     if (!room || room.phase !== "LOBBY") return { error: "Oyun başlatılamaz" };
-    const player = [...room.players.values()].find((p) => p.socketId === socketId);
-    if (!player || player.id !== room.hostId) return { error: "Sadece host başlatabilir" };
+    if (!this._isHost(socketId, room)) return { error: "Sadece host başlatabilir" };
     if (this.connectedPlayers(room).length < 2) return { error: "En az 2 aktif oyuncu gerekli" };
 
     if (room.config.mode === "classic") {
@@ -335,8 +384,7 @@ class RoomManager {
   playAgain(socketId) {
     const room = this.getRoomBySocket(socketId);
     if (!room || room.phase !== "GAME_OVER") return { error: "Tekrar oynanamaz" };
-    const player = [...room.players.values()].find((p) => p.socketId === socketId);
-    if (!player || player.id !== room.hostId) return { error: "Sadece host başlatabilir" };
+    if (!this._isHost(socketId, room)) return { error: "Sadece host başlatabilir" };
     if (this.connectedPlayers(room).length < 2) return { error: "En az 2 aktif oyuncu gerekli" };
 
     room.phase = "LOBBY";
@@ -354,9 +402,50 @@ class RoomManager {
     return { room };
   }
 
+  disconnectDisplay(socketId, onRoomUpdate) {
+    const room = this.getRoomBySocket(socketId);
+    if (!room || room.displaySocketId !== socketId) return null;
+
+    room.displaySocketId = null;
+    this.socketRoom.delete(socketId);
+    this._clearDisplayDisconnectTimer(room);
+
+    room.displayDisconnectTimer = setTimeout(() => {
+      const r = this.getRoom(room.code);
+      if (!r || r.displaySocketId) return;
+      if (r.phase === "LOBBY" && r.hostId === DISPLAY_HOST_ID) {
+        const next = this.connectedPlayers(r)[0];
+        if (next) r.hostId = next.id;
+      }
+      onRoomUpdate?.({ room: r });
+    }, DISCONNECT_GRACE_MS);
+
+    return { room };
+  }
+
+  leaveDisplay(socketId) {
+    const room = this.getRoomBySocket(socketId);
+    if (!room || room.displaySocketId !== socketId) return null;
+    this._clearDisplayDisconnectTimer(room);
+    room.displaySocketId = null;
+    this.socketRoom.delete(socketId);
+    if (room.phase === "LOBBY" && room.hostId === DISPLAY_HOST_ID) {
+      const next = this.connectedPlayers(room)[0];
+      if (next) room.hostId = next.id;
+    }
+    if (room.players.size === 0 && !room.displaySocketId) {
+      this.destroyRoom(room);
+      return { destroyed: true, code: room.code };
+    }
+    return { room };
+  }
+
   disconnect(socketId, onRoomUpdate) {
     const room = this.getRoomBySocket(socketId);
     if (!room) return null;
+    if (room.displaySocketId === socketId) {
+      return this.disconnectDisplay(socketId, onRoomUpdate);
+    }
     const player = [...room.players.values()].find((p) => p.socketId === socketId);
     if (!player) return null;
 
@@ -430,6 +519,8 @@ class RoomManager {
 
   destroyRoom(room) {
     this.clearTimer(room);
+    this._clearDisplayDisconnectTimer(room);
+    if (room.displaySocketId) this.socketRoom.delete(room.displaySocketId);
     this.rooms.delete(room.code);
     for (const p of room.players.values()) {
       this._clearDisconnectTimer(p);
@@ -438,7 +529,9 @@ class RoomManager {
   }
 
   serialize(room, viewerSocketId) {
+    const isDisplay = room.displaySocketId === viewerSocketId;
     const viewer = [...room.players.values()].find((p) => p.socketId === viewerSocketId);
+    const monitorMode = this.isMonitorRoom(room) && !isDisplay;
     const isPlaying = room.phase === "ROUND_PLAYING";
     const isReveal = room.phase === "ROUND_REVEAL";
 
@@ -448,8 +541,18 @@ class RoomManager {
 
     if ((isPlaying || isReveal) && room.roundData[room.currentRound]) {
       if (room.config.mode === "classic") {
+        const raw = room.roundData[room.currentRound];
+        if (!monitorMode) listing = sanitizeListing(raw);
+        slider = sliderRange(raw);
+      } else if (!monitorMode) {
+        const [a, b] = room.roundData[room.currentRound];
+        pair = [sanitizeListing(a), sanitizeListing(b)];
+      }
+    }
+
+    if (isDisplay && (isPlaying || isReveal) && room.roundData[room.currentRound]) {
+      if (room.config.mode === "classic") {
         listing = sanitizeListing(room.roundData[room.currentRound]);
-        slider = sliderRange(room.roundData[room.currentRound]);
       } else {
         const [a, b] = room.roundData[room.currentRound];
         pair = [sanitizeListing(a), sanitizeListing(b)];
@@ -459,7 +562,9 @@ class RoomManager {
     return {
       code: room.code,
       phase: room.phase,
-      isHost: viewer?.id === room.hostId,
+      role: isDisplay ? "display" : "player",
+      monitorMode,
+      isHost: this._isHost(viewerSocketId, room),
       config: room.config,
       currentRound: room.currentRound + 1,
       totalRounds: room.roundData.length || room.config.rounds,
@@ -473,7 +578,7 @@ class RoomManager {
         name: p.name,
         totalScore: p.totalScore,
         hasSubmitted: p.hasSubmitted,
-        isHost: p.id === room.hostId,
+        isHost: p.id === room.hostId && room.hostId !== DISPLAY_HOST_ID,
         isYou: p.socketId === viewerSocketId,
         offline: !p.socketId,
       })),

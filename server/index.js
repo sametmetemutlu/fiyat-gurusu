@@ -21,6 +21,10 @@ function broadcastRoom(room) {
     const sock = io.sockets.sockets.get(p.socketId);
     if (sock) sock.emit("room_state", rooms.serialize(room, p.socketId));
   }
+  if (room.displaySocketId) {
+    const ds = io.sockets.sockets.get(room.displaySocketId);
+    if (ds) ds.emit("room_state", rooms.serialize(room, room.displaySocketId));
+  }
 }
 
 function handleRoomEvent(result) {
@@ -65,6 +69,34 @@ function startRoundTimer(room) {
 }
 
 io.on("connection", (socket) => {
+  socket.on("create_display_room", (payload, ack) => {
+    try {
+      const { room } = rooms.createDisplayRoom(socket.id, {
+        mode: payload?.mode,
+        category: payload?.category,
+        rounds: payload?.rounds,
+      });
+      socket.join(room.code);
+      const state = rooms.serialize(room, socket.id);
+      ack?.({ ok: true, state });
+      broadcastRoom(room);
+    } catch (e) {
+      ack?.({ ok: false, error: e.message || "Monitör odası oluşturulamadı" });
+    }
+  });
+
+  socket.on("reconnect_display", (payload, ack) => {
+    const code = String(payload?.code || "").toUpperCase();
+    const result = rooms.reconnectDisplay(code, socket.id);
+    if (result.error) {
+      ack?.({ ok: false, error: result.error });
+      return;
+    }
+    socket.join(code);
+    ack?.({ ok: true, state: rooms.serialize(result.room, socket.id) });
+    broadcastRoom(result.room);
+  });
+
   socket.on("create_room", (payload, ack) => {
     try {
       const name = String(payload?.playerName || "Oyuncu");
@@ -165,6 +197,13 @@ io.on("connection", (socket) => {
 
   socket.on("leave_room", (_payload, ack) => {
     const result = rooms.leave(socket.id);
+    socket.leaveAll();
+    ack?.({ ok: true });
+    handleRoomEvent(result);
+  });
+
+  socket.on("leave_display", (_payload, ack) => {
+    const result = rooms.leaveDisplay(socket.id);
     socket.leaveAll();
     ack?.({ ok: true });
     handleRoomEvent(result);

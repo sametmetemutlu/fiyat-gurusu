@@ -18,11 +18,13 @@ export default function MpHigherLowerRound({
   pair,
   socket,
   onError,
+  monitorMode = false,
 }: {
   state: RoomState;
-  pair: [Omit<Listing, "realPrice">, Omit<Listing, "realPrice">];
+  pair?: [Omit<Listing, "realPrice">, Omit<Listing, "realPrice">] | null;
   socket: Socket | null;
   onError: (msg: string) => void;
+  monitorMode?: boolean;
 }) {
   const you = state.players.find((p) => p.isYou);
   const submitted = you?.hasSubmitted ?? false;
@@ -53,7 +55,15 @@ export default function MpHigherLowerRound({
         total={HIGHER_LOWER_ROUND_SECONDS}
       />
 
-      <p className="text-center text-foreground mb-3 font-semibold">Hangisi daha pahalı?</p>
+      {monitorMode ? (
+        <div className="text-center mb-4 space-y-1">
+          <div className="text-4xl">📺</div>
+          <p className="font-display font-bold text-lg">TV&apos;deki ilanlara bak!</p>
+          <p className="text-sm text-muted">Hangisi daha pahalı?</p>
+        </div>
+      ) : (
+        <p className="text-center text-foreground mb-3 font-semibold">Hangisi daha pahalı?</p>
+      )}
 
       {submitted ? (
         <div className="fg-card p-6 text-center space-y-1 mb-3">
@@ -61,18 +71,35 @@ export default function MpHigherLowerRound({
           <p className="font-semibold text-gold">Seçimin gönderildi!</p>
           <p className="text-sm text-muted">Diğer oyuncuları bekliyoruz…</p>
         </div>
+      ) : monitorMode ? (
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => pick(0)}
+            className="fg-btn fg-btn-gold py-10 text-xl font-display font-extrabold"
+          >
+            SOL
+          </button>
+          <button
+            type="button"
+            onClick={() => pick(1)}
+            className="fg-btn fg-btn-primary py-10 text-xl font-display font-extrabold"
+          >
+            SAĞ
+          </button>
+        </div>
+      ) : pair ? (
+        <div className="grid grid-cols-2 gap-3">
+          {pair.map((l, i) => (
+            <CompareCard
+              key={l.id}
+              listing={l as Listing}
+              disabled={submitted}
+              onClick={() => pick(i as 0 | 1)}
+            />
+          ))}
+        </div>
       ) : null}
-
-      <div className="grid grid-cols-2 gap-3">
-        {pair.map((l, i) => (
-          <CompareCard
-            key={l.id}
-            listing={l as Listing}
-            disabled={submitted}
-            onClick={() => pick(i as 0 | 1)}
-          />
-        ))}
-      </div>
     </div>
   );
 }
@@ -108,12 +135,17 @@ function CompareCard({
         disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:ring-2 hover:ring-gold active:scale-[0.98]"
       }`}
     >
-      <div className="relative aspect-square bg-black/5">
+      <div className="relative w-full aspect-[4/3] bg-black/5">
         {photos[safeIdx] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photos[safeIdx]} alt="" className="w-full h-full object-cover" draggable={false} />
+          <img
+            src={photos[safeIdx]}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            draggable={false}
+          />
         ) : (
-          <div className="w-full h-full grid place-items-center text-muted text-xs">Görsel yok</div>
+          <div className="absolute inset-0 grid place-items-center text-muted text-xs">Görsel yok</div>
         )}
         <span className="absolute top-2 left-2 text-[11px] bg-black/55 text-white px-2 py-0.5 rounded-full">
           {CATEGORY_LABELS[listing.category]}

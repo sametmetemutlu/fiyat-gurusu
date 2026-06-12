@@ -115,6 +115,13 @@ export default function EntryScreen() {
           desc="Oda kur, arkadaşlarınla yarış (max 10)"
         />
       </div>
+
+      <Link
+        href="/cok-oyunculu/ekran"
+        className="max-w-xl mx-auto w-full text-center text-sm text-muted hover:text-foreground transition"
+      >
+        📺 TV veya PC&apos;de oynat — <span className="text-brand font-semibold">Monitör modu</span>
+      </Link>
     </div>
   );
 }

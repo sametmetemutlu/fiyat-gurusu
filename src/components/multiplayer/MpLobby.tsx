@@ -117,6 +117,9 @@ export default function MpLobby({
         </div>
       ) : (
         <div className="fg-card p-5 text-center space-y-2">
+          {state.monitorMode && (
+            <p className="text-brand font-semibold text-sm">📺 Monitör modu — büyük ekrana bak</p>
+          )}
           <p className="text-muted text-sm">Host oyunu başlatmayı bekliyor…</p>
           <p className="font-semibold">
             {MP_MODE_LABELS[state.config.mode]} •{" "}

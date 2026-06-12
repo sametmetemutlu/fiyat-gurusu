@@ -204,7 +204,7 @@ export default function MultiplayerGame() {
       );
     }
     if (state.phase === "ROUND_PLAYING") {
-      if (state.config.mode === "classic" && state.listing && state.slider) {
+      if (state.config.mode === "classic" && state.slider) {
         return (
           <MpClassicRound
             state={state}
@@ -212,16 +212,18 @@ export default function MultiplayerGame() {
             slider={state.slider}
             socket={socket}
             onError={setError}
+            monitorMode={state.monitorMode}
           />
         );
       }
-      if (state.config.mode === "higherlower" && state.pair) {
+      if (state.config.mode === "higherlower" && (state.pair || state.monitorMode)) {
         return (
           <MpHigherLowerRound
             state={state}
             pair={state.pair}
             socket={socket}
             onError={setError}
+            monitorMode={state.monitorMode}
           />
         );
       }
@@ -287,6 +289,13 @@ export default function MultiplayerGame() {
         <div>⏱️ Tur süresi + 5 sn sıralama ekranı</div>
         <div>🔗 Oda linki paylaş, arkadaşlar direkt katılsın</div>
       </div>
+
+      <Link
+        href="/cok-oyunculu/ekran"
+        className="fg-card p-4 text-center text-sm text-muted hover:text-foreground transition block"
+      >
+        📺 <b className="text-foreground">Monitör modu</b> — TV veya PC&apos;de oyunu göster
+      </Link>
 
       {error && <p className="text-center text-red-600 text-sm font-semibold">{error}</p>}
       {connecting && <p className="text-center text-muted text-sm">Bağlanıyor…</p>}

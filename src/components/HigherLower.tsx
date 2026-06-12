@@ -266,18 +266,17 @@ function CompareCard({
         revealed ? "cursor-default" : "cursor-pointer active:scale-[0.98]"
       } ${ring}`}
     >
-      <div className="relative aspect-square bg-black/5">
+      <div className="relative w-full aspect-[4/3] bg-black/5">
         {photos[safeIdx] ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={safeIdx}
             src={photos[safeIdx]}
             alt={CATEGORY_LABELS[listing.category]}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
             draggable={false}
           />
         ) : (
-          <div className="w-full h-full grid place-items-center text-muted text-xs">Görsel yok</div>
+          <div className="absolute inset-0 grid place-items-center text-muted text-xs">Görsel yok</div>
         )}
         <span className="absolute top-2 left-2 text-[11px] bg-black/55 text-white px-2 py-0.5 rounded-full backdrop-blur">
           {CATEGORY_LABELS[listing.category]}

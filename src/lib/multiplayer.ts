@@ -5,6 +5,7 @@ export const MP_SERVER_URL =
 
 export type MpPhase = "LOBBY" | "ROUND_PLAYING" | "ROUND_REVEAL" | "GAME_OVER";
 export type MpMode = "classic" | "higherlower";
+export type MpRole = "player" | "display";
 
 export interface MpPlayer {
   id: string;
@@ -17,6 +18,7 @@ export interface MpPlayer {
 }
 
 const SESSION_KEY = "fg_mp_session";
+const DISPLAY_SESSION_KEY = "fg_mp_display";
 
 export function saveMpSession(code: string, playerId: string) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
@@ -38,6 +40,23 @@ export function clearMpSession() {
 export function roomInviteUrl(code: string): string {
   if (typeof window === "undefined") return `/cok-oyunculu?oda=${code}`;
   return `${window.location.origin}/cok-oyunculu?oda=${code}`;
+}
+
+export function saveDisplaySession(code: string) {
+  localStorage.setItem(DISPLAY_SESSION_KEY, JSON.stringify({ code }));
+}
+
+export function loadDisplaySession(): { code: string } | null {
+  try {
+    const raw = localStorage.getItem(DISPLAY_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as { code: string }) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearDisplaySession() {
+  localStorage.removeItem(DISPLAY_SESSION_KEY);
 }
 
 export interface MpConfig {
@@ -88,6 +107,8 @@ export interface MpFinalRow {
 export interface RoomState {
   code: string;
   phase: MpPhase;
+  role?: MpRole;
+  monitorMode?: boolean;
   isHost: boolean;
   config: MpConfig;
   currentRound: number;
