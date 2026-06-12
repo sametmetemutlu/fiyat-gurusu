@@ -4,9 +4,13 @@ const {
   REVEAL_SECONDS,
   DEFAULT_ROUNDS,
   MAX_PLAYERS,
+  CLASSIC_MP_LISTING_OPTIONS,
+  HL_MP_ROUND_OPTIONS,
+  HL_CORRECT_POINTS,
   sanitizeListing,
   sliderRange,
-  deviationPct,
+  classicRoundPoints,
+  isValidRoundCount,
   pickClassicRounds,
   pickHLRounds,
   generateCode,
@@ -22,7 +26,8 @@ const DISCONNECT_GRACE_MS = 120_000;
  * @property {string} id
  * @property {string} socketId
  * @property {string} name
- * @property {number} roundWins
+ * @property {number} totalScore
+ * @property {number} topTierCount
  * @property {boolean} hasSubmitted
  */
 
@@ -97,7 +102,8 @@ class RoomManager {
       id,
       socketId,
       name: name.slice(0, 20) || "Oyuncu",
-      roundWins: 0,
+      totalScore: 0,
+      topTierCount: 0,
       hasSubmitted: false,
       disconnectTimer: null,
     };
@@ -148,9 +154,15 @@ class RoomManager {
     if (!room || room.phase !== "LOBBY") return { error: "Ayar değiştirilemez" };
     const player = [...room.players.values()].find((p) => p.socketId === socketId);
     if (!player || player.id !== room.hostId) return { error: "Sadece host ayarlayabilir" };
-    if (patch.mode === "classic" || patch.mode === "higherlower") room.config.mode = patch.mode;
+    if (patch.mode === "classic" || patch.mode === "higherlower") {
+      room.config.mode = patch.mode;
+      const opts = room.config.mode === "classic" ? CLASSIC_MP_LISTING_OPTIONS : HL_MP_ROUND_OPTIONS;
+      if (!opts.includes(room.config.rounds)) room.config.rounds = DEFAULT_ROUNDS;
+    }
     if (["ALL", "CAR", "HOUSE"].includes(patch.category)) room.config.category = patch.category;
-    if (patch.rounds >= 3 && patch.rounds <= 10) room.config.rounds = patch.rounds;
+    if (patch.rounds != null && isValidRoundCount(room.config.mode, patch.rounds)) {
+      room.config.rounds = patch.rounds;
+    }
     return { room };
   }
 
@@ -238,17 +250,34 @@ class RoomManager {
       const rows = [...room.players.values()].map((p) => {
         const guess = room.submissions.get(p.id);
         const timedOut = guess === undefined;
-        const deviation = timedOut ? 100 : deviationPct(guess, realPrice);
-        return { playerId: p.id, name: p.name, guess: timedOut ? null : guess, deviation, timedOut };
+        const { points, tier, deviation } = timedOut
+          ? { points: 0, tier: { code: "—", label: "Süre doldu ⏱" }, deviation: 100 }
+          : classicRoundPoints(guess, realPrice);
+        const wp = room.players.get(p.id);
+        if (wp) {
+          wp.totalScore += points;
+          if (tier.code === "S" || tier.code === "A") wp.topTierCount += 1;
+        }
+        return {
+          playerId: p.id,
+          name: p.name,
+          guess: timedOut ? null : guess,
+          deviation,
+          points,
+          tierCode: tier.code,
+          tierLabel: tier.label,
+          timedOut,
+        };
       });
-      rows.sort((a, b) => a.deviation - b.deviation);
+      rows.sort((a, b) => b.points - a.points || a.deviation - b.deviation);
       rows.forEach((r, i) => (r.rank = i + 1));
       const winner = rows[0];
-      if (winner && !winner.timedOut) {
-        const wp = room.players.get(winner.playerId);
-        if (wp) wp.roundWins += 1;
-      }
-      room.reveal = { type: "classic", realPrice, rankings: rows, roundWinnerId: winner?.timedOut ? null : winner?.playerId };
+      room.reveal = {
+        type: "classic",
+        realPrice,
+        rankings: rows,
+        roundWinnerId: winner?.points > 0 ? winner.playerId : null,
+      };
     } else {
       const [left, right] = room.roundData[room.currentRound];
       const higherSide = left.realPrice >= right.realPrice ? 0 : 1;
@@ -256,20 +285,13 @@ class RoomManager {
         const pick = room.submissions.get(p.id);
         const timedOut = pick === undefined;
         const correct = !timedOut && pick === higherSide;
-        return { playerId: p.id, name: p.name, pick: timedOut ? null : pick, correct, timedOut };
+        const points = correct ? HL_CORRECT_POINTS : 0;
+        const wp = room.players.get(p.id);
+        if (wp && points > 0) wp.totalScore += points;
+        return { playerId: p.id, name: p.name, pick: timedOut ? null : pick, correct, points, timedOut };
       });
-      rows.sort((a, b) => {
-        if (a.correct !== b.correct) return a.correct ? -1 : 1;
-        if (a.timedOut !== b.timedOut) return a.timedOut ? 1 : -1;
-        return a.name.localeCompare(b.name, "tr");
-      });
+      rows.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, "tr"));
       rows.forEach((r, i) => (r.rank = i + 1));
-      for (const r of rows) {
-        if (r.correct) {
-          const wp = room.players.get(r.playerId);
-          if (wp) wp.roundWins += 1;
-        }
-      }
       room.reveal = {
         type: "higherlower",
         prices: [left.realPrice, right.realPrice],
@@ -292,8 +314,18 @@ class RoomManager {
     this.clearTimer(room);
     room.phase = "GAME_OVER";
     const finalRankings = [...room.players.values()]
-      .map((p) => ({ playerId: p.id, name: p.name, roundWins: p.roundWins }))
-      .sort((a, b) => b.roundWins - a.roundWins || a.name.localeCompare(b.name, "tr"));
+      .map((p) => ({
+        playerId: p.id,
+        name: p.name,
+        totalScore: p.totalScore,
+        topTierCount: p.topTierCount,
+      }))
+      .sort(
+        (a, b) =>
+          b.totalScore - a.totalScore ||
+          b.topTierCount - a.topTierCount ||
+          a.name.localeCompare(b.name, "tr")
+      );
     finalRankings.forEach((r, i) => (r.rank = i + 1));
     room.finalRankings = finalRankings;
     room.reveal = null;
@@ -315,7 +347,8 @@ class RoomManager {
     room.submissions = new Map();
     room.timeLeft = 0;
     for (const p of room.players.values()) {
-      p.roundWins = 0;
+      p.totalScore = 0;
+      p.topTierCount = 0;
       p.hasSubmitted = false;
     }
     return { room };
@@ -438,7 +471,7 @@ class RoomManager {
       players: [...room.players.values()].map((p) => ({
         id: p.id,
         name: p.name,
-        roundWins: p.roundWins,
+        totalScore: p.totalScore,
         hasSubmitted: p.hasSubmitted,
         isHost: p.id === room.hostId,
         isYou: p.socketId === viewerSocketId,

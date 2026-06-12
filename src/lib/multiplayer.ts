@@ -9,7 +9,7 @@ export type MpMode = "classic" | "higherlower";
 export interface MpPlayer {
   id: string;
   name: string;
-  roundWins: number;
+  totalScore: number;
   hasSubmitted: boolean;
   isHost: boolean;
   isYou: boolean;
@@ -51,6 +51,9 @@ export interface ClassicRevealRow {
   name: string;
   guess: number | null;
   deviation: number;
+  points: number;
+  tierCode: string;
+  tierLabel: string;
   timedOut: boolean;
   rank: number;
 }
@@ -60,6 +63,7 @@ export interface HlRevealRow {
   name: string;
   pick: 0 | 1 | null;
   correct: boolean;
+  points: number;
   timedOut: boolean;
   rank: number;
 }
@@ -76,7 +80,8 @@ export interface MpReveal {
 export interface MpFinalRow {
   playerId: string;
   name: string;
-  roundWins: number;
+  totalScore: number;
+  topTierCount?: number;
   rank: number;
 }
 

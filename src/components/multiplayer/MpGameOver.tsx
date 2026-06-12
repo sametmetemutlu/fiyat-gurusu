@@ -22,7 +22,7 @@ export default function MpGameOver({
         <h2 className="font-display text-2xl font-extrabold">Oyun bitti!</h2>
         {winner && (
           <p className="text-muted mt-1">
-            Şampiyon: <b className="text-gold">{winner.name}</b> ({winner.roundWins} tur)
+            Şampiyon: <b className="text-gold">{winner.name}</b> ({winner.totalScore} puan)
           </p>
         )}
       </div>
@@ -37,7 +37,7 @@ export default function MpGameOver({
           >
             <span className="w-8 text-center text-lg">{MEDALS[r.rank - 1] || `${r.rank}.`}</span>
             <span className="flex-1 truncate">{r.name}</span>
-            <span className="font-display font-bold">{r.roundWins} tur</span>
+            <span className="font-display font-bold">{r.totalScore} puan</span>
           </div>
         ))}
       </div>

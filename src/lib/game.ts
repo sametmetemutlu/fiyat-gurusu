@@ -51,36 +51,82 @@ export function deviationPct(guess: number, real: number): number {
   return (Math.abs(guess - real) / real) * 100;
 }
 
-/** Üstel azalan puan: 0% -> 100, 5% -> ~72, 15% -> ~37, 30% -> ~13 */
+export interface ScoreTier {
+  code: string;
+  label: string;
+  maxDeviation: number;
+  points: number;
+}
+
+/** Klasik mod kademe tablosu */
+export const SCORE_TIERS: ScoreTier[] = [
+  { code: "S", label: "Efsane 🎯", maxDeviation: 1, points: 100 },
+  { code: "A", label: "Tam isabet 🔥", maxDeviation: 3, points: 90 },
+  { code: "B", label: "Çok yakın 👍", maxDeviation: 7, points: 75 },
+  { code: "C", label: "İyi ✓", maxDeviation: 12, points: 60 },
+  { code: "D", label: "Orta", maxDeviation: 20, points: 45 },
+  { code: "E", label: "Uzak", maxDeviation: 35, points: 25 },
+  { code: "F", label: "Çok uzak", maxDeviation: 55, points: 10 },
+];
+
+export const MISS_TIER: ScoreTier = { code: "—", label: "Iska ❌", maxDeviation: Infinity, points: 0 };
+
+export const STREAK_MIN_POINTS = 60;
+export const STREAK_BONUS_PER = 5;
+export const STREAK_BONUS_MAX = 20;
+export const HL_CORRECT_POINTS = 100;
+
+/** Çok oyunculu klasik mod ilan sayısı seçenekleri */
+export const CLASSIC_MP_LISTING_OPTIONS = [5, 10, 15, 20] as const;
+/** Çok oyunculu Hangisi Pahalı tur seçenekleri */
+export const HL_MP_ROUND_OPTIONS = [5, 10, 15, 20] as const;
+
+export function tierForDeviation(dev: number): ScoreTier {
+  return SCORE_TIERS.find((t) => dev <= t.maxDeviation) ?? MISS_TIER;
+}
+
 export function scoreFor(guess: number, real: number): number {
-  const dev = deviationPct(guess, real);
-  return Math.round(100 * Math.exp(-dev / 15));
+  return tierForDeviation(deviationPct(guess, real)).points;
+}
+
+export function streakBonus(streak: number): number {
+  return Math.min(STREAK_BONUS_MAX, streak * STREAK_BONUS_PER);
 }
 
 export interface RoundResult {
   deviation: number;
   score: number;
+  basePoints: number;
+  streakBonus: number;
+  tierCode: string;
+  tierLabel: string;
   exact: boolean;
   verdict: string;
 }
 
-export function evaluate(guess: number, real: number): RoundResult {
+export function evaluate(guess: number, real: number, streak = 0): RoundResult {
   const deviation = deviationPct(guess, real);
-  const score = scoreFor(guess, real);
-  const exact = deviation <= 2;
-  let verdict: string;
-  if (exact) verdict = "Tam isabet! 🎯";
-  else if (deviation <= 5) verdict = "Çok yakın! 🔥";
-  else if (deviation <= 15) verdict = "İyi tahmin 👍";
-  else if (deviation <= 30) verdict = "Fena değil";
-  else if (deviation <= 60) verdict = "Biraz uzak";
-  else verdict = "Çok uzak 😅";
-  return { deviation, score, exact, verdict };
+  const tier = tierForDeviation(deviation);
+  const basePoints = tier.points;
+  const qualifies = basePoints >= STREAK_MIN_POINTS;
+  const bonus = qualifies ? streakBonus(streak) : 0;
+  const score = basePoints + bonus;
+  const exact = deviation <= 1;
+  return {
+    deviation,
+    score,
+    basePoints,
+    streakBonus: bonus,
+    tierCode: tier.code,
+    tierLabel: tier.label,
+    exact,
+    verdict: tier.label,
+  };
 }
 
-/** Seri çarpanı: ardışık iyi tahminlerde artar (max 2x) */
-export function streakMultiplier(streak: number): number {
-  return Math.min(2, 1 + streak * 0.1);
+/** Seri güncelleme: ≥60 puan alındıysa +1, değilse sıfırla */
+export function nextStreak(streak: number, basePoints: number): number {
+  return basePoints >= STREAK_MIN_POINTS ? streak + 1 : 0;
 }
 
 export function formatTRY(n: number): string {

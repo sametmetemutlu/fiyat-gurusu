@@ -18,7 +18,9 @@ export default function MpReveal({ state, reveal }: { state: RoomState; reveal: 
   return (
     <div className="max-w-md mx-auto px-4 py-6 animate-slideup">
       <div className="text-center mb-4">
-        <p className="text-sm text-muted">Tur {state.currentRound} sonuçları</p>
+        <p className="text-sm text-muted">
+          {state.config.mode === "classic" ? `İlan ${state.currentRound}` : `Tur ${state.currentRound}`} sonuçları
+        </p>
         <h2 className="font-display text-2xl font-extrabold">Sıralama</h2>
         <p className="text-xs text-muted mt-1">
           Sonraki tur <b className="text-brand">{countdown}</b> sn içinde…
@@ -57,8 +59,11 @@ export default function MpReveal({ state, reveal }: { state: RoomState; reveal: 
                     {r.timedOut ? "Süre doldu" : formatTRY(r.guess ?? 0)}
                   </div>
                 </div>
-                <div className="text-sm font-display font-bold tabular-nums">
-                  {r.timedOut ? "—" : `%${r.deviation.toFixed(1)}`}
+                <div className="text-right">
+                  <div className="text-sm font-display font-bold text-brand tabular-nums">+{r.points}</div>
+                  <div className="text-[11px] text-muted">
+                    {r.timedOut ? "—" : `${r.tierCode} · %${r.deviation.toFixed(1)}`}
+                  </div>
                 </div>
               </div>
             ))}
@@ -83,9 +88,12 @@ export default function MpReveal({ state, reveal }: { state: RoomState; reveal: 
               >
                 <span className="w-6 text-center">{MEDALS[r.rank - 1] || `${r.rank}.`}</span>
                 <div className="flex-1 truncate font-medium">{r.name}</div>
-                <div className="text-sm">
-                  {r.timedOut ? "⏱️" : r.correct ? "✅" : "❌"}
-                  {!r.timedOut && ` ${r.pick === 0 ? "Sol" : "Sağ"}`}
+                <div className="text-sm text-right">
+                  <div className="font-display font-bold text-brand">+{r.points}</div>
+                  <div className="text-[11px] text-muted">
+                    {r.timedOut ? "⏱️" : r.correct ? "✅" : "❌"}
+                    {!r.timedOut && ` ${r.pick === 0 ? "Sol" : "Sağ"}`}
+                  </div>
                 </div>
               </div>
             ))}

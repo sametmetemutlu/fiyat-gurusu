@@ -1,7 +1,7 @@
 "use client";
 
 import { MP_MODE_LABELS, type MpMode, type RoomState } from "@/lib/multiplayer";
-import type { CategoryFilter } from "@/lib/game";
+import { CLASSIC_MP_LISTING_OPTIONS, HL_MP_ROUND_OPTIONS, type CategoryFilter } from "@/lib/game";
 
 export default function MpLobby({
   state,
@@ -86,21 +86,25 @@ export default function MpLobby({
             ))}
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-muted">Tur sayısı</span>
+            <span className="text-sm text-muted">
+              {state.config.mode === "classic" ? "İlan sayısı" : "Tur sayısı"}
+            </span>
             <div className="flex gap-1">
-              {[3, 5, 7, 10].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => onUpdateConfig({ rounds: n })}
-                  className={`w-10 h-10 rounded-xl font-bold text-sm border transition ${
-                    state.config.rounds === n
-                      ? "bg-brand text-white border-brand"
-                      : "bg-black/[0.03] border-black/10 text-muted"
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
+              {(state.config.mode === "classic" ? CLASSIC_MP_LISTING_OPTIONS : HL_MP_ROUND_OPTIONS).map(
+                (n) => (
+                  <button
+                    key={n}
+                    onClick={() => onUpdateConfig({ rounds: n })}
+                    className={`w-10 h-10 rounded-xl font-bold text-sm border transition ${
+                      state.config.rounds === n
+                        ? "bg-brand text-white border-brand"
+                        : "bg-black/[0.03] border-black/10 text-muted"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                )
+              )}
             </div>
           </div>
           <button
@@ -114,7 +118,12 @@ export default function MpLobby({
       ) : (
         <div className="fg-card p-5 text-center space-y-2">
           <p className="text-muted text-sm">Host oyunu başlatmayı bekliyor…</p>
-          <p className="font-semibold">{MP_MODE_LABELS[state.config.mode]} • {state.config.rounds} tur</p>
+          <p className="font-semibold">
+            {MP_MODE_LABELS[state.config.mode]} •{" "}
+            {state.config.mode === "classic"
+              ? `${state.config.rounds} ilan`
+              : `${state.config.rounds} tur`}
+          </p>
         </div>
       )}
 

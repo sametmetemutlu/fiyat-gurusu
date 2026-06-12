@@ -18,7 +18,7 @@ import {
   RoundResult,
   shuffle,
   sliderRange,
-  streakMultiplier,
+  nextStreak,
 } from "@/lib/game";
 
 const listings = rawListings as Listing[];
@@ -62,12 +62,10 @@ export default function Game({ onExit }: { onExit?: () => void }) {
 
   const submit = useCallback(() => {
     if (!current || screen !== "playing") return;
-    const r = evaluate(guess, current.realPrice);
-    const mult = streakMultiplier(streak);
-    const gained = Math.round(r.score * (r.score >= 50 ? mult : 1));
-    setResult({ ...r, score: gained });
-    setTotalScore((s) => s + gained);
-    setStreak((s) => (r.score >= 50 ? s + 1 : 0));
+    const r = evaluate(guess, current.realPrice, streak);
+    setResult(r);
+    setTotalScore((s) => s + r.score);
+    setStreak(nextStreak(streak, r.basePoints));
     setScreen("result");
   }, [current, guess, screen, streak]);
 
@@ -113,7 +111,7 @@ export default function Game({ onExit }: { onExit?: () => void }) {
           <h2 className="font-display text-3xl font-extrabold tracking-tight">🎯 Klasik Mod</h2>
           <p className="text-muted">
             İlanın fiyatını tahmin et. Her tur için <b className="text-foreground">{CLASSIC_ROUND_SECONDS} sn</b>{" "}
-            var — ne kadar yakınsan o kadar çok puan!
+            var — kademene göre sabit puan kazan!
           </p>
         </div>
 
@@ -192,7 +190,9 @@ export default function Game({ onExit }: { onExit?: () => void }) {
       <div className="max-w-lg mx-auto px-4 py-6">
         {header}
         <div className="fg-card p-6 text-center space-y-5 animate-slideup">
-          <div className="text-lg text-foreground/90">{result.verdict}</div>
+          <div className="text-lg text-foreground/90">
+            <span className="font-semibold text-brand">{result.tierCode}</span> · {result.tierLabel}
+          </div>
 
           <div className="space-y-1">
             <div className="text-sm text-muted">Gerçek fiyat</div>
@@ -207,7 +207,7 @@ export default function Game({ onExit }: { onExit?: () => void }) {
             </div>
           </div>
 
-          <div className="flex justify-center gap-8">
+          <div className="flex justify-center gap-6 flex-wrap">
             <div>
               <div className="font-display text-2xl font-extrabold text-foreground">
                 %{result.deviation.toFixed(1)}
@@ -215,8 +215,18 @@ export default function Game({ onExit }: { onExit?: () => void }) {
               <div className="text-xs text-muted">sapma</div>
             </div>
             <div>
+              <div className="font-display text-2xl font-extrabold text-foreground">+{result.basePoints}</div>
+              <div className="text-xs text-muted">kademe</div>
+            </div>
+            {result.streakBonus > 0 && (
+              <div>
+                <div className="font-display text-2xl font-extrabold text-orange-600">+{result.streakBonus}</div>
+                <div className="text-xs text-muted">seri</div>
+              </div>
+            )}
+            <div>
               <div className="font-display text-2xl font-extrabold text-brand">+{result.score}</div>
-              <div className="text-xs text-muted">puan</div>
+              <div className="text-xs text-muted">toplam</div>
             </div>
           </div>
 

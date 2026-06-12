@@ -1,0 +1,14 @@
+# Render Blueprint — çok oyunculu Socket.io sunucusu
+# Dashboard: New → Blueprint → bu repo
+
+services:
+  - type: web
+    name: fiyat-gurusu-mp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm install --prefix server
+    startCommand: npm run start:mp
+    healthCheckPath: /
+    envVars:
+      - key: MP_CORS_ORIGIN
+        sync: false

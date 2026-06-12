@@ -44,7 +44,7 @@ export default function MpClassicRound({
     <div className="max-w-lg mx-auto px-4 py-4">
       <div className="flex items-center justify-between text-sm mb-3">
         <span className="px-2.5 py-1 rounded-full bg-black/[0.05] text-foreground font-medium">
-          Tur {state.currentRound}/{state.totalRounds}
+          İlan {state.currentRound}/{state.totalRounds}
         </span>
         <span className="px-2.5 py-1 rounded-full bg-brand/15 text-brand font-medium">
           {CATEGORY_LABELS[fullListing.category]}

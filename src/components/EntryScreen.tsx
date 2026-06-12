@@ -33,7 +33,7 @@ export default function EntryScreen() {
             <span className="text-brand"> Gurusu</span>
           </h1>
           <p className="text-muted max-w-xs text-[15px]">
-            Gerçek ilanların fiyatını tahmin et. Ne kadar yakınsan o kadar çok puan!
+            Gerçek ilanların fiyatını tahmin et. Kademene göre sabit puan kazan!
           </p>
         </div>
 

@@ -9,6 +9,7 @@ import {
   CATEGORY_LABELS,
   CategoryFilter,
   HIGHER_LOWER_ROUND_SECONDS,
+  HL_CORRECT_POINTS,
   chipsFor,
   expertiseInfo,
   formatTRY,
@@ -25,7 +26,8 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
   const [phase, setPhase] = useState<Phase>("menu");
   const [pair, setPair] = useState<[Listing, Listing] | null>(null);
   const [picked, setPicked] = useState<0 | 1 | null>(null);
-  const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [points, setPoints] = useState(0);
   const [best, setBest] = useState(0);
 
   useEffect(() => {
@@ -39,7 +41,8 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
 
   const start = (f: CategoryFilter) => {
     setFilter(f);
-    setScore(0);
+    setStreak(0);
+    setPoints(0);
     setPicked(null);
     deal(f);
     setPhase("playing");
@@ -51,11 +54,12 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
     const correct = pair[i].realPrice >= pair[1 - i].realPrice;
     setPhase("revealed");
     if (correct) {
-      const ns = score + 1;
-      setScore(ns);
-      if (ns > best) {
-        setBest(ns);
-        localStorage.setItem("fg_hl_best", String(ns));
+      const np = points + HL_CORRECT_POINTS;
+      setStreak((s) => s + 1);
+      setPoints(np);
+      if (np > best) {
+        setBest(np);
+        localStorage.setItem("fg_hl_best", String(np));
       }
     }
   };
@@ -136,9 +140,11 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
         <div className="text-5xl">💥</div>
         <h2 className="font-display text-2xl font-extrabold">Seri bitti!</h2>
         <div className="fg-card p-6 space-y-2">
-          <div className="text-sm text-muted">Doğru tahmin serin</div>
-          <div className="font-display text-5xl font-extrabold text-gold animate-countup">{score}</div>
-          <div className="text-sm text-muted">En uzun serin: {best}</div>
+          <div className="text-sm text-muted">Toplam puanın</div>
+          <div className="font-display text-5xl font-extrabold text-gold animate-countup">{points}</div>
+          <div className="text-sm text-muted">
+            {streak} doğru üst üste · Rekor: {best} puan
+          </div>
         </div>
         <div className="flex gap-3">
           <button onClick={() => start(filter)} className="fg-btn fg-btn-gold flex-1">
@@ -163,9 +169,11 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
         </button>
         <div className="flex gap-3">
           <span className="px-2.5 py-1 rounded-full bg-gold/15 text-gold font-semibold">
-            🔥 Seri: {score}
+            {points} puan
           </span>
-          <span className="px-2.5 py-1 rounded-full bg-black/[0.05] text-muted font-medium">Rekor: {best}</span>
+          <span className="px-2.5 py-1 rounded-full bg-orange-500/15 text-orange-600 font-semibold">
+            🔥 {streak} seri
+          </span>
         </div>
       </div>
 

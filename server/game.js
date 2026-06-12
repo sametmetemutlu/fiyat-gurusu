@@ -4,8 +4,22 @@ const path = require("path");
 const CLASSIC_ROUND_SECONDS = 40;
 const HIGHER_LOWER_ROUND_SECONDS = 15;
 const REVEAL_SECONDS = 5;
-const DEFAULT_ROUNDS = 5;
+const DEFAULT_ROUNDS = 10;
 const MAX_PLAYERS = 10;
+const CLASSIC_MP_LISTING_OPTIONS = [5, 10, 15, 20];
+const HL_MP_ROUND_OPTIONS = [5, 10, 15, 20];
+const HL_CORRECT_POINTS = 100;
+
+const SCORE_TIERS = [
+  { code: "S", label: "Efsane 🎯", maxDeviation: 1, points: 100 },
+  { code: "A", label: "Tam isabet 🔥", maxDeviation: 3, points: 90 },
+  { code: "B", label: "Çok yakın 👍", maxDeviation: 7, points: 75 },
+  { code: "C", label: "İyi ✓", maxDeviation: 12, points: 60 },
+  { code: "D", label: "Orta", maxDeviation: 20, points: 45 },
+  { code: "E", label: "Uzak", maxDeviation: 35, points: 25 },
+  { code: "F", label: "Çok uzak", maxDeviation: 55, points: 10 },
+];
+const MISS_TIER = { code: "—", label: "Iska ❌", maxDeviation: Infinity, points: 0 };
 
 let listingsCache = null;
 
@@ -39,6 +53,22 @@ function matchesFilter(l, filter) {
 function deviationPct(guess, real) {
   if (real <= 0) return 100;
   return (Math.abs(guess - real) / real) * 100;
+}
+
+function tierForDeviation(dev) {
+  return SCORE_TIERS.find((t) => dev <= t.maxDeviation) ?? MISS_TIER;
+}
+
+function classicRoundPoints(guess, real) {
+  if (guess === undefined || guess === null) return { points: 0, tier: MISS_TIER, deviation: 100 };
+  const deviation = deviationPct(guess, real);
+  const tier = tierForDeviation(deviation);
+  return { points: tier.points, tier, deviation };
+}
+
+function isValidRoundCount(mode, n) {
+  const opts = mode === "classic" ? CLASSIC_MP_LISTING_OPTIONS : HL_MP_ROUND_OPTIONS;
+  return opts.includes(n);
 }
 
 function sanitizeListing(l) {
@@ -119,11 +149,16 @@ module.exports = {
   REVEAL_SECONDS,
   DEFAULT_ROUNDS,
   MAX_PLAYERS,
+  CLASSIC_MP_LISTING_OPTIONS,
+  HL_MP_ROUND_OPTIONS,
+  HL_CORRECT_POINTS,
   loadListings,
   sanitizeListing,
   sliderRange,
   midOf,
   deviationPct,
+  classicRoundPoints,
+  isValidRoundCount,
   pickClassicRounds,
   pickHLRounds,
   generateCode,
