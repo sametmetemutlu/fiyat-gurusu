@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { io, Socket } from "socket.io-client";
 import { useProfile } from "@/lib/profile";
+import { GAME_PATH } from "@/lib/paths";
 import {
   MP_MODE_LABELS,
   MP_SERVER_URL,
@@ -190,7 +191,7 @@ export default function MultiplayerGame() {
     return (
       <div className="max-w-md mx-auto px-4 py-16 text-center space-y-4">
         <p className="text-muted">Çok oyunculu için önce takma adınla giriş yap.</p>
-        <Link href="/" className="fg-btn fg-btn-primary">
+        <Link href={GAME_PATH} className="fg-btn fg-btn-primary">
           Ana sayfaya dön
         </Link>
       </div>
@@ -299,7 +300,7 @@ export default function MultiplayerGame() {
       </div>
 
       <Link
-        href="/cok-oyunculu/ekran"
+        href={`${GAME_PATH}/cok-oyunculu/ekran`}
         className="fg-card p-4 text-center text-sm text-muted hover:text-foreground transition block"
       >
         📺 <b className="text-foreground">Monitör modu</b> — TV veya PC&apos;de oyunu göster

@@ -11,7 +11,7 @@ rooms.onDestroyed = (room) => guard.release(room.code);
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Fiyat Gurusu multiplayer server\n");
+  res.end("Piyasa Gurusu multiplayer server\n");
 });
 
 const io = new Server(server, {

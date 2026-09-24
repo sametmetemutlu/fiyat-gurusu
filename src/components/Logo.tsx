@@ -32,7 +32,7 @@ export function Logo({ size = "text-4xl" }: { size?: string }) {
     <div className="flex items-center gap-2.5">
       <LogoMark size={size === "text-5xl" ? 48 : 38} />
       <span className={`font-display font-bold tracking-tight ${size}`}>
-        <span className="text-foreground">Fiyat</span>
+        <span className="text-foreground">Piyasa</span>
         <span className="text-brand"> Gurusu</span>
       </span>
     </div>

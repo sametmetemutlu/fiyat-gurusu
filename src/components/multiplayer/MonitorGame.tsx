@@ -13,6 +13,7 @@ import {
   type RoomState,
 } from "@/lib/multiplayer";
 import type { CategoryFilter } from "@/lib/game";
+import { GAME_PATH } from "@/lib/paths";
 import MonitorLobby from "./MonitorLobby";
 import MonitorClassic from "./MonitorClassic";
 import MonitorHigherLower from "./MonitorHigherLower";
@@ -185,7 +186,7 @@ export default function MonitorGame() {
           {connecting ? "Bağlanıyor…" : "Oda Aç (Monitör)"}
         </button>
 
-        <Link href="/cok-oyunculu" className="block text-white/50 hover:text-white text-sm">
+        <Link href={`${GAME_PATH}/cok-oyunculu`} className="block text-white/50 hover:text-white text-sm">
           ← Telefon oyuncu moduna dön
         </Link>
 

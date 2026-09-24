@@ -14,8 +14,7 @@ const fredoka = Fredoka({
 });
 
 export const metadata: Metadata = {
-  title: "Fiyat Gurusu — Fiyat Tahmin Oyunu",
-  description: "Araba ve ev ilanlarının fiyatını tahmin et, en yakını sen ol!",
+  title: "sametmetemutlu",
 };
 
 export default function RootLayout({

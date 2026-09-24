@@ -1,4 +1,5 @@
 import type { CategoryFilter, Listing } from "./game";
+import { GAME_PATH } from "./paths";
 
 export const MP_SERVER_URL =
   process.env.NEXT_PUBLIC_MP_URL || "http://127.0.0.1:3001";
@@ -44,8 +45,9 @@ export function clearMpSession() {
 }
 
 export function roomInviteUrl(code: string): string {
-  if (typeof window === "undefined") return `/cok-oyunculu?oda=${code}`;
-  return `${window.location.origin}/cok-oyunculu?oda=${code}`;
+  const path = `${GAME_PATH}/cok-oyunculu?oda=${code}`;
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
 }
 
 export function saveDisplaySession(code: string, secret: string) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { clearProfile, saveProfile, useProfile } from "@/lib/profile";
 import { LogoMark } from "./Logo";
+import { GAME_PATH } from "@/lib/paths";
 
 export default function EntryScreen() {
   const { profile, ready } = useProfile();
@@ -29,7 +30,7 @@ export default function EntryScreen() {
             <LogoMark size={76} />
           </div>
           <h1 className="font-display text-5xl sm:text-6xl font-bold tracking-tight">
-            <span className="text-foreground">Fiyat</span>
+            <span className="text-foreground">Piyasa</span>
             <span className="text-brand"> Gurusu</span>
           </h1>
           <p className="text-muted max-w-xs text-[15px]">
@@ -47,7 +48,7 @@ export default function EntryScreen() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && startGuest()}
-              placeholder="Örn. FiyatAvcısı"
+              placeholder="Örn. PiyasaAvcısı"
               maxLength={20}
               autoFocus
               className="w-full bg-black/[0.03] border border-black/10 rounded-2xl px-4 py-3 text-foreground placeholder:text-muted/70 outline-none focus:border-brand focus:bg-white transition"
@@ -90,7 +91,7 @@ export default function EntryScreen() {
           <LogoMark size={56} />
         </div>
         <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight">
-          <span className="text-foreground">Fiyat</span>
+          <span className="text-foreground">Piyasa</span>
           <span className="text-brand"> Gurusu</span>
         </h1>
         <div className="inline-flex items-center gap-2 fg-pill">
@@ -101,14 +102,14 @@ export default function EntryScreen() {
       {/* mod kartları */}
       <div className="grid gap-4 sm:grid-cols-2 max-w-xl mx-auto w-full">
         <ModeCard
-          href="/tek-oyunculu"
+          href={`${GAME_PATH}/tek-oyunculu`}
           icon="🎯"
           tile="bg-brand/12 text-brand"
           title="Tek Oyunculu"
           desc="Klasik tahmin & Hangisi Pahalı"
         />
         <ModeCard
-          href="/cok-oyunculu"
+          href={`${GAME_PATH}/cok-oyunculu`}
           icon="👥"
           tile="bg-sky-400/15 text-sky-500"
           title="Çok Oyunculu"
@@ -117,7 +118,7 @@ export default function EntryScreen() {
       </div>
 
       <Link
-        href="/cok-oyunculu/ekran"
+        href={`${GAME_PATH}/cok-oyunculu/ekran`}
         className="max-w-xl mx-auto w-full text-center text-sm text-muted hover:text-foreground transition"
       >
         📺 TV veya PC&apos;de oynat — <span className="text-brand font-semibold">Monitör modu</span>
