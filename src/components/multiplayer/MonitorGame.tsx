@@ -7,6 +7,7 @@ import {
   MP_SERVER_URL,
   clearDisplaySession,
   loadDisplaySession,
+  mpBlockedReason,
   saveDisplaySession,
   type MpMode,
   type RoomState,
@@ -46,6 +47,11 @@ export default function MonitorGame() {
   }, []);
 
   useEffect(() => {
+    const blocked = mpBlockedReason();
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
     const s = io(MP_SERVER_URL, { autoConnect: false, transports: ["websocket", "polling"] });
     bindSocket(s);
     setSocket(s);
@@ -61,8 +67,8 @@ export default function MonitorGame() {
     return socket;
   };
 
-  const onRoomReady = (code: string, st: RoomState) => {
-    saveDisplaySession(code);
+  const onRoomReady = (code: string, secret: string, st: RoomState) => {
+    saveDisplaySession(code, secret);
     setState(st);
     setView("room");
   };
@@ -70,16 +76,17 @@ export default function MonitorGame() {
   const tryReconnect = useCallback(() => {
     if (triedReconnect.current) return;
     const session = loadDisplaySession();
-    if (!session?.code) return;
+    if (!session?.code || !session.secret) return;
 
     const s = ensureSocket();
     if (!s) return;
     triedReconnect.current = true;
     setConnecting(true);
 
-    s.emit("reconnect_display", { code: session.code }, (res: { ok: boolean; error?: string; state?: RoomState }) => {
+    s.emit("reconnect_display", { code: session.code, secret: session.secret }, (res: { ok: boolean; error?: string; secret?: string; state?: RoomState }) => {
       setConnecting(false);
-      if (res?.ok && res.state) onRoomReady(session.code, res.state);
+      if (res?.ok && res.state && res.secret) onRoomReady(session.code, res.secret, res.state);
+      else clearDisplaySession();
     });
   }, [socket]);
 
@@ -92,10 +99,10 @@ export default function MonitorGame() {
     if (!s) return;
     setConnecting(true);
     setError("");
-    s.emit("create_display_room", {}, (res: { ok: boolean; error?: string; state?: RoomState }) => {
+    s.emit("create_display_room", {}, (res: { ok: boolean; error?: string; secret?: string; state?: RoomState }) => {
       setConnecting(false);
       if (!res?.ok) setError(res?.error || "Oda oluşturulamadı");
-      else if (res.state) onRoomReady(res.state.code, res.state);
+      else if (res.state && res.secret) onRoomReady(res.state.code, res.secret, res.state);
     });
   };
 

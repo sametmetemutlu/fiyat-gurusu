@@ -10,7 +10,12 @@ export function useRoundTimer(
 ) {
   const [remaining, setRemaining] = useState(totalSeconds);
   const onExpireRef = useRef(onExpire);
+  const resetRef = useRef(resetKey);
   onExpireRef.current = onExpire;
+  if (resetRef.current !== resetKey) {
+    resetRef.current = resetKey;
+    setRemaining(totalSeconds);
+  }
 
   useEffect(() => {
     if (!active) return;

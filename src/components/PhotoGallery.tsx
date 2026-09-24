@@ -7,10 +7,12 @@ export default function PhotoGallery({
   photos,
   alt,
   resetKey,
+  className = "",
 }: {
   photos: string[];
   alt: string;
   resetKey?: string;
+  className?: string;
 }) {
   const [broken, setBroken] = useState<Record<number, boolean>>({});
   const { safeIdx, go } = usePhotoCarousel(photos, resetKey ?? photos[0]);
@@ -18,7 +20,9 @@ export default function PhotoGallery({
   const valid = photos.filter((_, i) => !broken[i]);
 
   return (
-    <div className="relative w-full aspect-[4/3] bg-black/5 rounded-2xl overflow-hidden select-none shadow-sm">
+    <div
+      className={`relative w-full aspect-[4/3] bg-black/5 rounded-2xl overflow-hidden select-none shadow-sm ${className}`}
+    >
       {photos.length > 0 ? (
         <img
           src={photos[safeIdx]}

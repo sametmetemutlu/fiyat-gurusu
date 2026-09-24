@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import rawListings from "@/data/listings.json";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PhotoGallery from "./PhotoGallery";
 import RoundTimer from "./RoundTimer";
 import { useRoundTimer } from "@/hooks/useRoundTimer";
@@ -10,18 +9,15 @@ import {
   CLASSIC_ROUND_SECONDS,
   CategoryFilter,
   chipsFor,
-  Listing,
-  evaluate,
   formatTRY,
-  matchesFilter,
   midOf,
   RoundResult,
-  shuffle,
+  SealedListing,
   sliderRange,
-  nextStreak,
 } from "@/lib/game";
-
-const listings = rawListings as Listing[];
+import { dealClassic, fetchCounts, scoreClassic, type SoloCounts } from "@/lib/soloClient";
+import PricePad from "./PricePad";
+import ClassicStage from "./ClassicStage";
 
 type Screen = "menu" | "playing" | "result";
 
@@ -29,52 +25,81 @@ const ROUNDS = 10;
 
 export default function Game({ onExit }: { onExit?: () => void }) {
   const [screen, setScreen] = useState<Screen>("menu");
-  const [filter, setFilter] = useState<CategoryFilter>("ALL");
-  const [queue, setQueue] = useState<Listing[]>([]);
+  const [queue, setQueue] = useState<SealedListing[]>([]);
   const [round, setRound] = useState(0);
   const [guess, setGuess] = useState(0);
   const [result, setResult] = useState<RoundResult | null>(null);
+  const [answerPrice, setAnswerPrice] = useState<number | null>(null);
   const [totalScore, setTotalScore] = useState(0);
-  const [streak, setStreak] = useState(0);
   const [best, setBest] = useState(0);
+  const [counts, setCounts] = useState<SoloCounts | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [scoreError, setScoreError] = useState("");
+  const timeLeftRef = useRef(CLASSIC_ROUND_SECONDS);
+  const lockedRef = useRef(false);
 
   useEffect(() => {
     const b = Number(localStorage.getItem("fg_best") || 0);
     setBest(b);
+    fetchCounts()
+      .then((d) => setCounts(d.counts))
+      .catch(() => {});
   }, []);
 
   const current = queue[round];
 
-  const start = (f: CategoryFilter) => {
-    const pool = shuffle(listings.filter((l) => matchesFilter(l, f)));
-    const q = pool.slice(0, Math.min(ROUNDS, pool.length));
-    setFilter(f);
-    setQueue(q);
-    setRound(0);
-    setTotalScore(0);
-    setStreak(0);
-    setResult(null);
-    if (q.length) {
-      setGuess(midOf(q[0]));
-      setScreen("playing");
+  const start = async (f: CategoryFilter) => {
+    if (starting) return;
+    setStarting(true);
+    setScoreError("");
+    try {
+      const data = await dealClassic(f);
+      const q = data.rounds.slice(0, ROUNDS);
+      setQueue(q);
+      setRound(0);
+      setTotalScore(0);
+      setResult(null);
+      setAnswerPrice(null);
+      lockedRef.current = false;
+      if (q.length) {
+        setGuess(midOf(q[0]));
+        setScreen("playing");
+      }
+    } catch {
+      setScoreError("İlanlar yüklenemedi");
+    } finally {
+      setStarting(false);
     }
   };
 
-  const submit = useCallback(() => {
-    if (!current || screen !== "playing") return;
-    const r = evaluate(guess, current.realPrice, streak);
-    setResult(r);
-    setTotalScore((s) => s + r.score);
-    setStreak(nextStreak(streak, r.basePoints));
-    setScreen("result");
-  }, [current, guess, screen, streak]);
+  const submit = useCallback(async (fromTimeout = false) => {
+    if (!current || screen !== "playing" || lockedRef.current) return;
+    lockedRef.current = true;
+    setScoreError("");
+    try {
+      const data = await scoreClassic(
+        current.seal,
+        fromTimeout ? null : guess,
+        timeLeftRef.current,
+        fromTimeout
+      );
+      setAnswerPrice(data.answerPrice);
+      setResult(data.result);
+      if (!fromTimeout) setTotalScore((s) => s + data.result.score);
+      setScreen("result");
+    } catch {
+      lockedRef.current = false;
+      setScoreError("Puan hesaplanamadı, tekrar dene");
+    }
+  }, [current, guess, screen]);
 
   const timer = useRoundTimer(
     CLASSIC_ROUND_SECONDS,
     screen === "playing",
     `${round}-${current?.id ?? ""}`,
-    submit
+    () => submit(true)
   );
+  timeLeftRef.current = timer.remaining;
 
   const next = () => {
     const n = round + 1;
@@ -90,6 +115,8 @@ export default function Game({ onExit }: { onExit?: () => void }) {
     setRound(n);
     setGuess(midOf(queue[n]));
     setResult(null);
+    setAnswerPrice(null);
+    lockedRef.current = false;
     setScreen("playing");
   };
 
@@ -111,7 +138,7 @@ export default function Game({ onExit }: { onExit?: () => void }) {
           <h2 className="font-display text-3xl font-extrabold tracking-tight">🎯 Klasik Mod</h2>
           <p className="text-muted">
             İlanın fiyatını tahmin et. Her tur için <b className="text-foreground">{CLASSIC_ROUND_SECONDS} sn</b>{" "}
-            var — kademene göre sabit puan kazan!
+            var — yakın tahmin puan getirir, erken cevap hız puanı ekler.
           </p>
         </div>
 
@@ -122,19 +149,19 @@ export default function Game({ onExit }: { onExit?: () => void }) {
               ["ALL", "🎲 Hepsi"],
               ["CAR", "🚗 Araba"],
               ["HOUSE", "🏠 Ev"],
-            ] as [CategoryFilter, string][]).map(([f, label]) => {
-              const count = listings.filter((l) => matchesFilter(l, f)).length;
-              return (
+            ] as [CategoryFilter, string][]).map(([f, label]) => (
                 <button
                   key={f}
                   onClick={() => start(f)}
-                  className="rounded-2xl bg-black/[0.03] border border-black/10 hover:bg-brand/10 hover:border-brand/40 text-foreground font-semibold py-4 px-2 transition active:scale-95"
+                  disabled={starting}
+                  className="rounded-2xl bg-black/[0.03] border border-black/10 hover:bg-brand/10 hover:border-brand/40 text-foreground font-semibold py-4 px-2 transition active:scale-95 disabled:opacity-50"
                 >
                   <div className="text-base">{label}</div>
-                  <div className="text-[11px] text-muted font-normal">{count} ilan</div>
+                  <div className="text-[11px] text-muted font-normal">
+                    {counts ? `${counts[f]} ilan` : "…"}
+                  </div>
                 </button>
-              );
-            })}
+              ))}
           </div>
         </div>
 
@@ -152,6 +179,7 @@ export default function Game({ onExit }: { onExit?: () => void }) {
         <p className="text-xs text-muted/70 max-w-xs">
           İlanlar gerçek verilerden derlenmiştir. Fiyatlar zamanla değişebilir.
         </p>
+        {scoreError && <p className="text-sm font-semibold text-red-600">{scoreError}</p>}
       </div>
     );
   }
@@ -159,11 +187,11 @@ export default function Game({ onExit }: { onExit?: () => void }) {
   if (!current) return null;
 
   const chips = chipsFor(current);
-  const { min, max, step } = sliderRange(current);
+  const { min, max } = sliderRange(current);
 
   // ---------- HEADER ----------
   const header = (
-    <div className="flex items-center justify-between text-sm mb-4">
+    <div className="flex items-center justify-between text-sm">
       <div className="flex items-center gap-2">
         <span className="px-2.5 py-1 rounded-full bg-black/[0.05] text-foreground font-medium">
           Tur {round + 1}/{queue.length}
@@ -173,55 +201,49 @@ export default function Game({ onExit }: { onExit?: () => void }) {
         </span>
       </div>
       <div className="flex items-center gap-3">
-        {streak > 0 && (
-          <span className="px-2.5 py-1 rounded-full bg-orange-500/15 text-orange-600 font-semibold">
-            🔥 {streak} seri
-          </span>
-        )}
         <span className="font-display font-extrabold text-gold">{totalScore} puan</span>
       </div>
     </div>
   );
 
   // ---------- RESULT ----------
-  if (screen === "result" && result) {
-    const over = guess > current.realPrice;
+  if (screen === "result" && result && answerPrice != null) {
+    const over = !result.timedOut && guess > answerPrice;
+    const under = !result.timedOut && guess < answerPrice;
     return (
       <div className="max-w-lg mx-auto px-4 py-6">
         {header}
         <div className="fg-card p-6 text-center space-y-5 animate-slideup">
-          <div className="text-lg text-foreground/90">
-            <span className="font-semibold text-brand">{result.tierCode}</span> · {result.tierLabel}
-          </div>
+          <div className="text-lg font-semibold text-brand">{result.tierLabel}</div>
 
           <div className="space-y-1">
             <div className="text-sm text-muted">Gerçek fiyat</div>
             <div className="font-display text-4xl font-extrabold text-gold animate-countup">
-              {formatTRY(current.realPrice)}
+              {formatTRY(answerPrice)}
             </div>
             <div className="text-sm text-muted">
-              Senin tahminin:{" "}
-              <span className={over ? "text-orange-600" : "text-sky-600"}>
-                {formatTRY(guess)} {over ? "(yüksek)" : "(düşük)"}
-              </span>
+              {result.timedOut ? (
+                "Süre doldu, bu turdan puan yok"
+              ) : (
+                <>
+                  Senin tahminin:{" "}
+                  <span className={over ? "text-orange-600" : under ? "text-sky-600" : "text-brand"}>
+                    {formatTRY(guess)} {over ? "(yüksek)" : under ? "(düşük)" : ""}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
           <div className="flex justify-center gap-6 flex-wrap">
             <div>
-              <div className="font-display text-2xl font-extrabold text-foreground">
-                %{result.deviation.toFixed(1)}
-              </div>
-              <div className="text-xs text-muted">sapma</div>
-            </div>
-            <div>
               <div className="font-display text-2xl font-extrabold text-foreground">+{result.basePoints}</div>
-              <div className="text-xs text-muted">kademe</div>
+              <div className="text-xs text-muted">tahmin</div>
             </div>
-            {result.streakBonus > 0 && (
+            {result.speedBonus > 0 && (
               <div>
-                <div className="font-display text-2xl font-extrabold text-orange-600">+{result.streakBonus}</div>
-                <div className="text-xs text-muted">seri</div>
+                <div className="font-display text-2xl font-extrabold text-sky-600">+{result.speedBonus}</div>
+                <div className="text-xs text-muted">hız</div>
               </div>
             )}
             <div>
@@ -240,59 +262,38 @@ export default function Game({ onExit }: { onExit?: () => void }) {
 
   // ---------- PLAYING ----------
   return (
-    <div className="max-w-lg mx-auto px-4 py-6">
-      {header}
-      <RoundTimer
-        remaining={timer.remaining}
-        progress={timer.progress}
-        urgent={timer.urgent}
-        total={CLASSIC_ROUND_SECONDS}
-      />
-      <PhotoGallery photos={current.photos} alt={CATEGORY_LABELS[current.category]} resetKey={current.id} />
-
-      <div className="flex flex-wrap gap-2 mt-4">
-        {chips.map((c, i) => (
-          <span key={i} className="fg-pill">
-            <span>{c.icon}</span>
-            {c.label}
-          </span>
-        ))}
-      </div>
-
-      <div className="mt-6 fg-card p-5 space-y-4">
-        <div className="text-center">
-          <div className="text-sm text-muted">Tahminin</div>
-          <div className="font-display text-3xl font-extrabold text-brand">{formatTRY(guess)}</div>
-        </div>
-
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={Math.min(max, Math.max(min, guess))}
-          onChange={(e) => setGuess(Number(e.target.value))}
-          className="w-full"
+    <ClassicStage
+      header={header}
+      timer={
+        <RoundTimer
+          remaining={timer.remaining}
+          progress={timer.progress}
+          urgent={timer.urgent}
+          total={CLASSIC_ROUND_SECONDS}
         />
-        <div className="flex justify-between text-xs text-muted">
-          <span>{formatTRY(min)}</span>
-          <span>{formatTRY(max)}</span>
+      }
+      photo={
+        <PhotoGallery photos={current.photos} alt={CATEGORY_LABELS[current.category]} resetKey={current.id} />
+      }
+      chips={chips.map((c, i) => (
+        <span key={i} className="fg-pill">
+          <span>{c.icon}</span>
+          {c.label}
+        </span>
+      ))}
+      controls={
+        <div className="space-y-3">
+          <PricePad min={min} max={max} value={guess} onChange={setGuess} resetKey={current.id} />
+          <button
+            onClick={() => submit(false)}
+            disabled={guess <= 0}
+            className="fg-btn fg-btn-primary w-full disabled:opacity-40"
+          >
+            Tahmin Et
+          </button>
+          {scoreError && <p className="text-sm font-semibold text-red-600 text-center">{scoreError}</p>}
         </div>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            value={guess}
-            onChange={(e) => setGuess(Number(e.target.value) || 0)}
-            className="flex-1 bg-black/[0.03] border border-black/10 rounded-xl px-3 py-2.5 text-foreground text-right font-semibold outline-none focus:border-brand focus:bg-white"
-          />
-          <span className="text-muted font-semibold">TL</span>
-        </div>
-
-        <button onClick={submit} className="fg-btn fg-btn-primary w-full">
-          Tahmin Et
-        </button>
-      </div>
-    </div>
+      }
+    />
   );
 }

@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { usePhotoCarousel } from "@/hooks/usePhotoCarousel";
-import rawListings from "@/data/listings.json";
 import RoundTimer from "./RoundTimer";
 import { useRoundTimer } from "@/hooks/useRoundTimer";
 import {
@@ -13,79 +12,121 @@ import {
   chipsFor,
   expertiseInfo,
   formatTRY,
-  Listing,
-  pickComparisonPair,
+  SealedListing,
 } from "@/lib/game";
-
-const listings = rawListings as Listing[];
+import { dealPair, scoreHigherLower } from "@/lib/soloClient";
 
 type Phase = "menu" | "playing" | "revealed" | "over";
 
 export default function HigherLower({ onExit }: { onExit?: () => void }) {
   const [filter, setFilter] = useState<CategoryFilter>("ALL");
   const [phase, setPhase] = useState<Phase>("menu");
-  const [pair, setPair] = useState<[Listing, Listing] | null>(null);
+  const [pair, setPair] = useState<[SealedListing, SealedListing] | null>(null);
   const [picked, setPicked] = useState<0 | 1 | null>(null);
+  const [outcome, setOutcome] = useState<{
+    correct: boolean;
+    prices: [number, number];
+    higherSide: 0 | 1;
+    timedOut: boolean;
+  } | null>(null);
   const [streak, setStreak] = useState(0);
   const [points, setPoints] = useState(0);
+  const [lastGain, setLastGain] = useState(0);
   const [best, setBest] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const timeLeftRef = useRef(HIGHER_LOWER_ROUND_SECONDS);
+  const lockedRef = useRef(false);
 
   useEffect(() => {
     setBest(Number(localStorage.getItem("fg_hl_best") || 0));
   }, []);
 
-  const deal = (f: CategoryFilter) => {
-    const res = pickComparisonPair(listings, f);
-    setPair(res?.pair ?? null);
+  const loadPair = async (f: CategoryFilter) => {
+    setBusy(true);
+    setError("");
+    setPair(null);
+    setOutcome(null);
+    setPicked(null);
+    lockedRef.current = false;
+    try {
+      const data = await dealPair(f);
+      setPair(data.pair);
+      setPhase("playing");
+    } catch {
+      setError("İlan hazırlanamadı");
+      setPhase("menu");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const start = (f: CategoryFilter) => {
     setFilter(f);
     setStreak(0);
     setPoints(0);
-    setPicked(null);
-    deal(f);
     setPhase("playing");
+    loadPair(f);
   };
 
-  const pick = (i: 0 | 1) => {
-    if (!pair || phase !== "playing") return;
+  const revealPick = useCallback(async (i: 0 | 1 | null, fromTimeout: boolean) => {
+    if (!pair || phase !== "playing" || lockedRef.current) return;
+    lockedRef.current = true;
     setPicked(i);
-    const correct = pair[i].realPrice >= pair[1 - i].realPrice;
-    setPhase("revealed");
-    if (correct) {
-      const np = points + HL_CORRECT_POINTS;
-      setStreak((s) => s + 1);
-      setPoints(np);
-      if (np > best) {
-        setBest(np);
-        localStorage.setItem("fg_hl_best", String(np));
+    try {
+      const data = await scoreHigherLower(
+        [pair[0].seal, pair[1].seal],
+        fromTimeout ? null : i,
+        timeLeftRef.current,
+        fromTimeout
+      );
+      setOutcome({
+        correct: data.correct,
+        prices: data.prices,
+        higherSide: data.higherSide,
+        timedOut: data.timedOut,
+      });
+      setPhase("revealed");
+      if (data.correct && !data.timedOut) {
+        const np = points + data.points;
+        setLastGain(data.points);
+        setStreak((s) => s + 1);
+        setPoints(np);
+        if (np > best) {
+          setBest(np);
+          localStorage.setItem("fg_hl_best", String(np));
+        }
       }
+    } catch {
+      lockedRef.current = false;
+      setPicked(null);
+      setError("Puan hesaplanamadı, tekrar dene");
     }
+  }, [best, pair, phase, points]);
+
+  const pick = (i: 0 | 1) => {
+    revealPick(i, false);
   };
 
   const handleTimeout = useCallback(() => {
-    if (phase !== "playing" || !pair) return;
-    setPicked(null);
-    setPhase("revealed");
-  }, [phase, pair]);
+    revealPick(null, true);
+  }, [revealPick]);
 
   const timer = useRoundTimer(
     HIGHER_LOWER_ROUND_SECONDS,
-    phase === "playing",
+    phase === "playing" && pair != null,
     pair ? `${pair[0].id}-${pair[1].id}` : "",
     handleTimeout
   );
+  timeLeftRef.current = timer.remaining;
 
   const next = () => {
-    setPicked(null);
-    deal(filter);
     setPhase("playing");
+    loadPair(filter);
   };
 
-  const timedOut = phase === "revealed" && picked === null;
-  const wasCorrect =
-    pair && picked !== null && pair[picked].realPrice >= pair[1 - picked].realPrice;
+  const timedOut = outcome?.timedOut === true;
+  const wasCorrect = outcome?.correct === true && !timedOut;
 
   // sonuç ekranına geçiş: yanlış veya süre dolduysa over
   useEffect(() => {
@@ -108,8 +149,8 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
           <h2 className="font-display text-3xl font-extrabold">⚖️ Hangisi Pahalı?</h2>
           <p className="text-muted">
             İki ilandan <b className="text-foreground">pahalı</b> olduğunu düşündüğüne tıkla.
-            Her tur <b className="text-foreground">{HIGHER_LOWER_ROUND_SECONDS} sn</b> — doğru bildikçe serin uzar,
-            yanlış veya süre dolunca biter!
+            Her tur <b className="text-foreground">{HIGHER_LOWER_ROUND_SECONDS} sn</b>. Doğru cevap 100 puan,
+            ne kadar erken basarsan o kadar hız puanı. Yanlışta veya süre dolunca biter.
           </p>
         </div>
         <div className="w-full fg-card p-5 space-y-3">
@@ -127,8 +168,9 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
           </div>
         </div>
         <div className="text-sm text-muted">
-          En uzun serin: <span className="font-display font-extrabold text-gold">{best}</span>
+          En yüksek skorun: <span className="font-display font-extrabold text-gold">{best}</span>
         </div>
+        {error && <p className="text-sm font-semibold text-red-600">{error}</p>}
       </div>
     );
   }
@@ -158,7 +200,13 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
     );
   }
 
-  if (!pair) return null;
+  if (!pair) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16 text-center text-muted">
+        {busy ? "İlan geliyor…" : error || "İlan hazırlanamadı"}
+      </div>
+    );
+  }
 
   // ---------- PLAYING / REVEALED ----------
   return (
@@ -197,7 +245,8 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
             listing={l}
             revealed={phase === "revealed"}
             chosen={picked === i}
-            isHigher={l.realPrice >= pair[1 - i].realPrice}
+            isHigher={outcome?.higherSide === i}
+            revealedPrice={outcome?.prices[i]}
             onClick={() => pick(i as 0 | 1)}
           />
         ))}
@@ -205,7 +254,7 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
 
       {phase === "revealed" && wasCorrect && (
         <button onClick={next} className="fg-btn fg-btn-gold w-full mt-4 animate-slideup">
-          Doğru! Devam →
+          Doğru! +{lastGain} →
         </button>
       )}
       {phase === "revealed" && timedOut && (
@@ -213,6 +262,9 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
       )}
       {phase === "revealed" && !wasCorrect && !timedOut && (
         <p className="mt-4 text-center text-red-600 font-semibold animate-slideup">Yanlış seçim 😬</p>
+      )}
+      {error && phase === "playing" && (
+        <p className="mt-4 text-center text-red-600 text-sm font-semibold">{error}</p>
       )}
     </div>
   );
@@ -223,12 +275,14 @@ function CompareCard({
   revealed,
   chosen,
   isHigher,
+  revealedPrice,
   onClick,
 }: {
-  listing: Listing;
+  listing: SealedListing;
   revealed: boolean;
   chosen: boolean;
   isHigher: boolean;
+  revealedPrice?: number;
   onClick: () => void;
 }) {
   const photos = listing.photos;
@@ -310,7 +364,7 @@ function CompareCard({
               isHigher ? "bg-emerald-600/95" : "bg-slate-900/85"
             }`}
           >
-            {formatTRY(listing.realPrice)}
+            {revealedPrice != null ? formatTRY(revealedPrice) : ""}
           </div>
         )}
       </div>

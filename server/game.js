@@ -9,6 +9,7 @@ const MAX_PLAYERS = 10;
 const CLASSIC_MP_LISTING_OPTIONS = [5, 10, 15, 20];
 const HL_MP_ROUND_OPTIONS = [5, 10, 15, 20];
 const HL_CORRECT_POINTS = 100;
+const SPEED_BONUS_MAX = 10;
 
 const SCORE_TIERS = [
   { code: "S", label: "Efsane 🎯", maxDeviation: 1, points: 100 },
@@ -59,11 +60,20 @@ function tierForDeviation(dev) {
   return SCORE_TIERS.find((t) => dev <= t.maxDeviation) ?? MISS_TIER;
 }
 
-function classicRoundPoints(guess, real) {
-  if (guess === undefined || guess === null) return { points: 0, tier: MISS_TIER, deviation: 100 };
+function speedBonus(basePoints, timeLeft, totalSeconds) {
+  if (basePoints <= 0 || timeLeft <= 0 || totalSeconds <= 0) return 0;
+  const ratio = Math.min(1, timeLeft / totalSeconds);
+  return Math.max(1, Math.round(SPEED_BONUS_MAX * ratio));
+}
+
+function classicRoundPoints(guess, real, timeLeft, totalSeconds) {
+  if (guess === undefined || guess === null) {
+    return { points: 0, basePoints: 0, speedBonus: 0, tier: MISS_TIER, deviation: 100 };
+  }
   const deviation = deviationPct(guess, real);
   const tier = tierForDeviation(deviation);
-  return { points: tier.points, tier, deviation };
+  const bonus = speedBonus(tier.points, timeLeft, totalSeconds);
+  return { points: tier.points + bonus, basePoints: tier.points, speedBonus: bonus, tier, deviation };
 }
 
 function isValidRoundCount(mode, n) {
@@ -72,19 +82,36 @@ function isValidRoundCount(mode, n) {
 }
 
 function sanitizeListing(l) {
-  const { realPrice, ...rest } = l;
-  return rest;
+  return {
+    id: l.id,
+    category: l.category,
+    listingDate: l.listingDate ?? null,
+    attributes: l.attributes,
+    photos: Array.isArray(l.photos) ? l.photos : [],
+  };
+}
+
+// src/lib/game.ts PRICE_BOUNDS ile aynı tut.
+const PRICE_BOUNDS = {
+  CAR: { min: 50_000, max: 80_000_000, step: 1_000 },
+  HOUSE_RENT: { min: 5_000, max: 750_000, step: 500 },
+  HOUSE_SALE: { min: 300_000, max: 300_000_000, step: 1_000 },
+};
+
+function isPlayable(l) {
+  if (!l.realPrice || !l.photos?.length) return false;
+  const b = PRICE_BOUNDS[l.category];
+  return !!b && l.realPrice >= b.min && l.realPrice <= b.max;
 }
 
 function sliderRange(l) {
-  if (l.category === "CAR") return { min: 50_000, max: 5_000_000, step: 5_000 };
-  if (l.category === "HOUSE_RENT") return { min: 5_000, max: 200_000, step: 1_000 };
-  return { min: 300_000, max: 40_000_000, step: 50_000 };
+  return PRICE_BOUNDS[l.category] || PRICE_BOUNDS.HOUSE_SALE;
 }
 
 function midOf(l) {
   const { min, max } = sliderRange(l);
-  return Math.round((min + max) / 2 / 1000) * 1000;
+  const mid = Math.exp((Math.log(min) + Math.log(max)) / 2);
+  return Math.round(mid / 1000) * 1000;
 }
 
 function priceChallengeOk(a, b) {
@@ -92,11 +119,11 @@ function priceChallengeOk(a, b) {
   const lo = Math.min(a.realPrice, b.realPrice);
   if (lo <= 0) return false;
   const r = hi / lo;
-  return r >= 1.15 && r <= 3;
+  return r >= 1.05 && r <= 1.15;
 }
 
 function pickComparisonPair(all, filter) {
-  const pool = all.filter((l) => matchesFilter(l, filter));
+  const pool = all.filter((l) => matchesFilter(l, filter) && isPlayable(l));
   if (pool.length < 2) return null;
   const order = shuffle(pool);
 
@@ -109,16 +136,13 @@ function pickComparisonPair(all, filter) {
     if (!sameType.length) continue;
     const cands = sameType.filter((b) => priceChallengeOk(a, b));
     if (cands.length) return ret(a, cands[Math.floor(Math.random() * cands.length)]);
-    if (sameType.length) return ret(a, sameType[Math.floor(Math.random() * sameType.length)]);
   }
 
-  const a = order[0];
-  const b = order.find((l) => l.id !== a.id && l.realPrice !== a.realPrice);
-  return b ? ret(a, b) : null;
+  return null;
 }
 
 function pickClassicRounds(filter, count) {
-  const pool = shuffle(loadListings().filter((l) => matchesFilter(l, filter)));
+  const pool = shuffle(loadListings().filter((l) => matchesFilter(l, filter) && isPlayable(l)));
   return pool.slice(0, Math.min(count, pool.length));
 }
 
@@ -158,6 +182,7 @@ module.exports = {
   midOf,
   deviationPct,
   classicRoundPoints,
+  speedBonus,
   isValidRoundCount,
   pickClassicRounds,
   pickHLRounds,

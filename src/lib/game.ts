@@ -29,6 +29,11 @@ export interface Listing {
   photos: string[];
 }
 
+/** Oyuncuya giden ilan. Gerçek fiyat yoktur. */
+export type ListingView = Omit<Listing, "realPrice">;
+/** Sunucunun mühürlediği ilan. Mühür açılmadan fiyat bilinemez. */
+export type SealedListing = ListingView & { seal: string };
+
 export type CategoryFilter = "ALL" | "CAR" | "HOUSE";
 
 /** Tur başına süre (saniye) */
@@ -41,7 +46,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   HOUSE_RENT: "Kiralık Ev",
 };
 
-export function isCar(l: Listing): l is Listing & { attributes: CarAttributes } {
+export function isCar(l: ListingView): l is ListingView & { attributes: CarAttributes } {
   return l.category === "CAR";
 }
 
@@ -71,9 +76,8 @@ export const SCORE_TIERS: ScoreTier[] = [
 
 export const MISS_TIER: ScoreTier = { code: "—", label: "Iska ❌", maxDeviation: Infinity, points: 0 };
 
-export const STREAK_MIN_POINTS = 60;
-export const STREAK_BONUS_PER = 5;
-export const STREAK_BONUS_MAX = 20;
+/** Erken cevap bonusu. En küçük kademe farkı 10 olduğu için hız bir üst kademeyi geçemez. */
+export const SPEED_BONUS_MAX = 10;
 export const HL_CORRECT_POINTS = 100;
 
 /** Çok oyunculu klasik mod ilan sayısı seçenekleri */
@@ -89,44 +93,52 @@ export function scoreFor(guess: number, real: number): number {
   return tierForDeviation(deviationPct(guess, real)).points;
 }
 
-export function streakBonus(streak: number): number {
-  return Math.min(STREAK_BONUS_MAX, streak * STREAK_BONUS_PER);
+/** İskada hız puanı yok. Süre bitmeden verilen isabetli cevap en az +1 alır. */
+export function speedBonus(basePoints: number, timeLeft: number, totalSeconds: number): number {
+  if (basePoints <= 0 || timeLeft <= 0 || totalSeconds <= 0) return 0;
+  const ratio = Math.min(1, timeLeft / totalSeconds);
+  return Math.max(1, Math.round(SPEED_BONUS_MAX * ratio));
 }
 
 export interface RoundResult {
-  deviation: number;
   score: number;
   basePoints: number;
-  streakBonus: number;
+  speedBonus: number;
   tierCode: string;
   tierLabel: string;
   exact: boolean;
   verdict: string;
+  timedOut: boolean;
 }
 
-export function evaluate(guess: number, real: number, streak = 0): RoundResult {
-  const deviation = deviationPct(guess, real);
-  const tier = tierForDeviation(deviation);
-  const basePoints = tier.points;
-  const qualifies = basePoints >= STREAK_MIN_POINTS;
-  const bonus = qualifies ? streakBonus(streak) : 0;
-  const score = basePoints + bonus;
-  const exact = deviation <= 1;
+export function timeoutResult(): RoundResult {
   return {
-    deviation,
-    score,
-    basePoints,
-    streakBonus: bonus,
-    tierCode: tier.code,
-    tierLabel: tier.label,
-    exact,
-    verdict: tier.label,
+    score: 0,
+    basePoints: 0,
+    speedBonus: 0,
+    tierCode: "—",
+    tierLabel: "Süre doldu ⏱",
+    exact: false,
+    verdict: "Süre doldu ⏱",
+    timedOut: true,
   };
 }
 
-/** Seri güncelleme: ≥60 puan alındıysa +1, değilse sıfırla */
-export function nextStreak(streak: number, basePoints: number): number {
-  return basePoints >= STREAK_MIN_POINTS ? streak + 1 : 0;
+export function evaluate(guess: number, real: number, timeLeft: number, totalSeconds: number): RoundResult {
+  const deviation = deviationPct(guess, real);
+  const tier = tierForDeviation(deviation);
+  const basePoints = tier.points;
+  const bonus = speedBonus(basePoints, timeLeft, totalSeconds);
+  return {
+    score: basePoints + bonus,
+    basePoints,
+    speedBonus: bonus,
+    tierCode: tier.code,
+    tierLabel: tier.label,
+    exact: deviation <= 1,
+    verdict: tier.label,
+    timedOut: false,
+  };
 }
 
 export function formatTRY(n: number): string {
@@ -146,7 +158,7 @@ export function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export function matchesFilter(l: Listing, filter: CategoryFilter): boolean {
+export function matchesFilter(l: ListingView, filter: CategoryFilter): boolean {
   if (filter === "ALL") return true;
   if (filter === "CAR") return l.category === "CAR";
   return l.category === "HOUSE_SALE" || l.category === "HOUSE_RENT";
@@ -157,7 +169,7 @@ export interface Chip {
   label: string;
 }
 
-export function chipsFor(l: Listing): Chip[] {
+export function chipsFor(l: ListingView): Chip[] {
   if (isCar(l)) {
     const a = l.attributes as CarAttributes;
     return [
@@ -186,8 +198,8 @@ export function chipsFor(l: Listing): Chip[] {
 
 // ---------- "Hangisi Pahalı?" akıllı eşleştirme ----------
 // Karşılaştırılan iki ilan ortak özellik taşısın + fiyatları yakın olsun ki zorlayıcı olsun.
-const MIN_PRICE_RATIO = 1.15; // pahalı olan en az %15 daha pahalı (yazı-tura olmasın)
-const MAX_PRICE_RATIO = 3; // ama 3x'ten fazla fark olmasın (çok kolay olmasın)
+const MIN_PRICE_RATIO = 1.05; // pahalı olan en az %5 daha pahalı
+const MAX_PRICE_RATIO = 1.15; // iki ilan arasında en fazla %15 fark
 
 function approx(x: number | null, y: number | null, pct: number): boolean {
   if (x == null || y == null || x <= 0 || y <= 0) return false;
@@ -277,7 +289,7 @@ export interface PairResult {
 
 /** İki ilanı ortak özellik + fiyat yakınlığına göre eşleştirir. */
 export function pickComparisonPair(all: Listing[], filter: CategoryFilter): PairResult | null {
-  const pool = all.filter((l) => matchesFilter(l, filter));
+  const pool = all.filter((l) => matchesFilter(l, filter) && isPlayable(l));
   if (pool.length < 2) return null;
   const order = shuffle(pool);
 
@@ -295,25 +307,15 @@ export function pickComparisonPair(all: Listing[], filter: CategoryFilter): Pair
     for (const r of rulesFor(a)) for (let i = 0; i < (r.weight ?? 1); i++) weighted.push(r);
     const rules = shuffle(weighted);
 
-    // 1) Benzerlik + fiyat yakınlığı (ideal: zorlayıcı)
     for (const r of rules) {
       const cands = sameType.filter((b) => r.match(b) && priceChallengeOk(a, b));
       if (cands.length) return ret(a, cands[Math.floor(Math.random() * cands.length)], r.reason);
     }
-    // 2) Benzerlik var ama fiyat farkı bandın dışında (yine de ortak özellikli)
-    for (const r of rules) {
-      const cands = sameType.filter((b) => r.match(b));
-      if (cands.length) return ret(a, cands[Math.floor(Math.random() * cands.length)], r.reason);
-    }
+    const close = sameType.filter((b) => priceChallengeOk(a, b));
+    if (close.length) return ret(a, close[Math.floor(Math.random() * close.length)], "Yakın fiyat");
   }
 
-  // 3) Son çare: aynı kategoriden herhangi iki farklı fiyatlı ilan
-  const a = order[0];
-  const b =
-    order.find((l) => l.id !== a.id && l.category === a.category && l.realPrice !== a.realPrice) ||
-    order.find((l) => l.id !== a.id && l.realPrice !== a.realPrice);
-  if (!b) return null;
-  return ret(a, b, "");
+  return null;
 }
 
 // Araç ekspertiz/hasar durumu → renkli rozet bilgisi (fiyatı çok etkiler)
@@ -324,7 +326,7 @@ export interface Expertise {
   tone: ExpertiseTone;
 }
 
-export function expertiseInfo(l: Listing): Expertise | null {
+export function expertiseInfo(l: ListingView): Expertise | null {
   if (!isCar(l)) return null;
   const raw = (l.attributes as CarAttributes).hasarDurumu || "";
   const low = raw.toLowerCase();
@@ -339,13 +341,55 @@ export function expertiseInfo(l: Listing): Expertise | null {
   return { icon: tone === "danger" ? "🔧" : "🎨", label: detail, tone };
 }
 
-export function sliderRange(l: Listing): { min: number; max: number; step: number } {
-  if (l.category === "CAR") return { min: 50_000, max: 5_000_000, step: 5_000 };
-  if (l.category === "HOUSE_RENT") return { min: 5_000, max: 200_000, step: 1_000 };
-  return { min: 300_000, max: 40_000_000, step: 50_000 };
+/**
+ * Tahmin aralığı = oynanabilir fiyat aralığı.
+ * Çubuk logaritmiktir; ucuz ve pahalı ilan aynı barda seçilebilir.
+ * Bu sınırların dışı (ör. 930 milyonluk Corolla) bozuk veri sayılır, oyuna girmez.
+ */
+export const PRICE_BOUNDS: Record<Category, { min: number; max: number; step: number }> = {
+  CAR: { min: 50_000, max: 80_000_000, step: 1_000 },
+  HOUSE_RENT: { min: 5_000, max: 750_000, step: 500 },
+  HOUSE_SALE: { min: 300_000, max: 300_000_000, step: 1_000 },
+};
+
+/** Logaritmik çubuğun çözünürlüğü */
+export const SLIDER_TICKS = 1000;
+
+export function sliderRange(l: ListingView): { min: number; max: number; step: number } {
+  return PRICE_BOUNDS[l.category];
 }
 
-export function midOf(l: Listing): number {
+export function isPlayable(l: Listing): boolean {
+  if (!l.realPrice || !l.photos?.length) return false;
+  const { min, max } = PRICE_BOUNDS[l.category];
+  return l.realPrice >= min && l.realPrice <= max;
+}
+
+/** Çubuk adımı fiyata göre büyür; numpad ise kuruşuna kadar serbesttir. */
+export function snapPrice(n: number): number {
+  if (n <= 0) return 0;
+  const step =
+    n < 250_000 ? 1_000 : n < 2_000_000 ? 5_000 : n < 15_000_000 ? 25_000 : n < 80_000_000 ? 100_000 : 250_000;
+  return Math.round(n / step) * step;
+}
+
+export function priceToTick(price: number, min: number, max: number): number {
+  const p = Math.min(max, Math.max(min, price));
+  const t = (Math.log(p) - Math.log(min)) / (Math.log(max) - Math.log(min));
+  return Math.round(Math.min(1, Math.max(0, t)) * SLIDER_TICKS);
+}
+
+export function tickToPrice(tick: number, min: number, max: number): number {
+  const t = Math.min(SLIDER_TICKS, Math.max(0, tick)) / SLIDER_TICKS;
+  const raw = Math.exp(Math.log(min) + t * (Math.log(max) - Math.log(min)));
+  return Math.min(max, Math.max(min, snapPrice(raw)));
+}
+
+export function suggestGuess(min: number, max: number): number {
+  return tickToPrice(SLIDER_TICKS / 2, min, max);
+}
+
+export function midOf(l: ListingView): number {
   const { min, max } = sliderRange(l);
-  return Math.round((min + max) / 2 / 1000) * 1000;
+  return suggestGuess(min, max);
 }

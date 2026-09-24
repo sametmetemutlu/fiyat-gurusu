@@ -9,6 +9,7 @@ import {
   MP_SERVER_URL,
   clearMpSession,
   loadMpSession,
+  mpBlockedReason,
   roomInviteUrl,
   saveMpSession,
   type MpMode,
@@ -60,6 +61,11 @@ export default function MultiplayerGame() {
   }, []);
 
   useEffect(() => {
+    const blocked = mpBlockedReason();
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
     const s = io(MP_SERVER_URL, { autoConnect: false, transports: ["websocket", "polling"] });
     bindSocket(s);
     setSocket(s);
@@ -75,8 +81,8 @@ export default function MultiplayerGame() {
     return socket;
   };
 
-  const onRoomJoined = (code: string, playerId: string, st?: RoomState) => {
-    saveMpSession(code, playerId);
+  const onRoomJoined = (code: string, playerId: string, secret: string, st?: RoomState) => {
+    saveMpSession(code, playerId, secret);
     if (st) {
       setState(st);
       setView("room");
@@ -89,7 +95,7 @@ export default function MultiplayerGame() {
   const tryReconnect = useCallback(() => {
     if (triedReconnect.current || !profile) return;
     const session = loadMpSession();
-    if (!session?.playerId || !session.code) return;
+    if (!session?.playerId || !session.code || !session.secret) return;
     if (joinCode && joinCode !== session.code) return;
 
     const s = ensureSocket();
@@ -99,11 +105,13 @@ export default function MultiplayerGame() {
 
     s.emit(
       "reconnect_room",
-      { code: session.code, playerId: session.playerId, playerName },
-      (res: { ok: boolean; error?: string; playerId?: string; state?: RoomState }) => {
+      { code: session.code, playerId: session.playerId, secret: session.secret, playerName },
+      (res: { ok: boolean; error?: string; playerId?: string; secret?: string; state?: RoomState }) => {
         setConnecting(false);
-        if (res?.ok && res.state) {
-          onRoomJoined(session.code, res.playerId || session.playerId, res.state);
+        if (res?.ok && res.state && res.secret) {
+          onRoomJoined(session.code, res.playerId || session.playerId, res.secret, res.state);
+        } else {
+          clearMpSession();
         }
       }
     );
@@ -118,10 +126,10 @@ export default function MultiplayerGame() {
     if (!s) return;
     setConnecting(true);
     setError("");
-    s.emit("create_room", { playerName }, (res: { ok: boolean; error?: string; playerId?: string; state?: RoomState }) => {
+    s.emit("create_room", { playerName }, (res: { ok: boolean; error?: string; playerId?: string; secret?: string; state?: RoomState }) => {
       setConnecting(false);
       if (!res?.ok) setError(res?.error || "Oda oluşturulamadı");
-      else if (res.state && res.playerId) onRoomJoined(res.state.code, res.playerId, res.state);
+      else if (res.state && res.playerId && res.secret) onRoomJoined(res.state.code, res.playerId, res.secret, res.state);
     });
   };
 
@@ -134,10 +142,10 @@ export default function MultiplayerGame() {
     s.emit(
       "join_room",
       { code: c, playerName },
-      (res: { ok: boolean; error?: string; playerId?: string; state?: RoomState }) => {
+      (res: { ok: boolean; error?: string; playerId?: string; secret?: string; state?: RoomState }) => {
         setConnecting(false);
         if (!res?.ok) setError(res?.error || "Katılınamadı");
-        else if (res.state && res.playerId) onRoomJoined(res.state.code, res.playerId, res.state);
+        else if (res.state && res.playerId && res.secret) onRoomJoined(res.state.code, res.playerId, res.secret, res.state);
       }
     );
   };

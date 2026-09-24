@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const {
   CLASSIC_ROUND_SECONDS,
   HIGHER_LOWER_ROUND_SECONDS,
@@ -10,6 +11,7 @@ const {
   sanitizeListing,
   sliderRange,
   classicRoundPoints,
+  speedBonus,
   isValidRoundCount,
   pickClassicRounds,
   pickHLRounds,
@@ -46,10 +48,29 @@ const DISCONNECT_GRACE_MS = 120_000;
  * @property {object|null} reveal
  * @property {object[]|null} finalRankings
  * @property {string|null} displaySocketId
+ * @property {string|null} displaySecret
  * @property {NodeJS.Timeout|null} displayDisconnectTimer
  */
 
 const DISPLAY_HOST_ID = "__display__";
+
+function newSecret() {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function secretsMatch(expected, given) {
+  if (typeof expected !== "string" || typeof given !== "string") return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(given);
+  if (a.length === 0 || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function cleanName(name) {
+  if (typeof name !== "string") return "Oyuncu";
+  const s = name.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 20);
+  return s || "Oyuncu";
+}
 
 class RoomManager {
   constructor() {
@@ -102,6 +123,7 @@ class RoomManager {
       reveal: null,
       finalRankings: null,
       displaySocketId: null,
+      displaySecret: null,
       displayDisconnectTimer: null,
     };
   }
@@ -110,15 +132,17 @@ class RoomManager {
     const code = generateCode(this.rooms);
     const room = this._baseRoom(code, config);
     room.displaySocketId = socketId;
+    room.displaySecret = newSecret();
     this.rooms.set(code, room);
     this.socketRoom.set(socketId, code);
-    return { room };
+    return { room, secret: room.displaySecret };
   }
 
-  reconnectDisplay(code, socketId) {
+  reconnectDisplay(code, socketId, secret) {
     const room = this.getRoom(code);
     if (!room) return { error: "Oda bulunamadı" };
     if (!this.isMonitorRoom(room)) return { error: "Bu oda monitör modunda değil" };
+    if (!secretsMatch(room.displaySecret, secret)) return { error: "Monitör oturumu geçersiz" };
     if (room.displaySocketId && room.displaySocketId !== socketId) {
       return { error: "Monitör zaten bağlı" };
     }
@@ -126,7 +150,7 @@ class RoomManager {
     room.displaySocketId = socketId;
     room.hostId = DISPLAY_HOST_ID;
     this.socketRoom.set(socketId, code);
-    return { room };
+    return { room, secret: room.displaySecret };
   }
 
   _clearDisplayDisconnectTimer(room) {
@@ -138,21 +162,23 @@ class RoomManager {
 
   createRoom(socketId, playerName, config = {}) {
     const code = generateCode(this.rooms);
-    const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const playerId = `p_${crypto.randomBytes(9).toString("base64url")}`;
     /** @type {Room} */
     const room = this._baseRoom(code, config);
     room.hostId = playerId;
-    room.players.set(playerId, this._makePlayer(playerId, socketId, playerName));
+    const player = this._makePlayer(playerId, socketId, playerName);
+    room.players.set(playerId, player);
     this.rooms.set(code, room);
     this.socketRoom.set(socketId, code);
-    return { room, playerId };
+    return { room, playerId, secret: player.secret };
   }
 
   _makePlayer(id, socketId, name) {
     return {
       id,
       socketId,
-      name: name.slice(0, 20) || "Oyuncu",
+      name: cleanName(name),
+      secret: newSecret(),
       totalScore: 0,
       topTierCount: 0,
       hasSubmitted: false,
@@ -175,17 +201,19 @@ class RoomManager {
       return { error: "Oda dolu (max 10 kişi)" };
     }
 
-    const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    room.players.set(playerId, this._makePlayer(playerId, socketId, playerName));
+    const playerId = `p_${crypto.randomBytes(9).toString("base64url")}`;
+    const player = this._makePlayer(playerId, socketId, playerName);
+    room.players.set(playerId, player);
     this.socketRoom.set(socketId, code);
-    return { room, playerId };
+    return { room, playerId, secret: player.secret };
   }
 
-  reconnectRoom(code, socketId, playerId, playerName) {
+  reconnectRoom(code, socketId, playerId, secret, playerName) {
     const room = this.getRoom(code);
     if (!room) return { error: "Oda bulunamadı" };
     const player = room.players.get(playerId);
     if (!player) return { error: "Oyuncu bulunamadı" };
+    if (!secretsMatch(player.secret, secret)) return { error: "Oturum geçersiz" };
     if (player.socketId && player.socketId !== socketId) {
       return { error: "Bu oyuncu zaten bağlı" };
     }
@@ -195,9 +223,9 @@ class RoomManager {
 
     this._clearDisconnectTimer(player);
     player.socketId = socketId;
-    if (playerName) player.name = playerName.slice(0, 20) || player.name;
+    if (playerName) player.name = cleanName(playerName);
     this.socketRoom.set(socketId, code);
-    return { room, playerId };
+    return { room, playerId, secret: player.secret };
   }
 
   updateConfig(socketId, patch) {
@@ -270,7 +298,7 @@ class RoomManager {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return { error: "Geçersiz tahmin" };
 
-    room.submissions.set(player.id, num);
+    room.submissions.set(player.id, { value: num, timeLeft: room.timeLeft });
     player.hasSubmitted = true;
     return { room, allDone: room.submissions.size >= room.players.size };
   }
@@ -284,7 +312,7 @@ class RoomManager {
     if (!player || player.hasSubmitted) return { error: "Zaten seçtin" };
     if (side !== 0 && side !== 1) return { error: "Geçersiz seçim" };
 
-    room.submissions.set(player.id, side);
+    room.submissions.set(player.id, { value: side, timeLeft: room.timeLeft });
     player.hasSubmitted = true;
     return { room, allDone: room.submissions.size >= room.players.size };
   }
@@ -297,11 +325,13 @@ class RoomManager {
       const listing = room.roundData[room.currentRound];
       const realPrice = listing.realPrice;
       const rows = [...room.players.values()].map((p) => {
-        const guess = room.submissions.get(p.id);
-        const timedOut = guess === undefined;
-        const { points, tier, deviation } = timedOut
-          ? { points: 0, tier: { code: "—", label: "Süre doldu ⏱" }, deviation: 100 }
-          : classicRoundPoints(guess, realPrice);
+        const sub = room.submissions.get(p.id);
+        const timedOut = !sub;
+        const guess = sub?.value;
+        const scored = timedOut
+          ? { points: 0, basePoints: 0, speedBonus: 0, tier: { code: "—", label: "Süre doldu ⏱" }, deviation: 100 }
+          : classicRoundPoints(guess, realPrice, sub.timeLeft, CLASSIC_ROUND_SECONDS);
+        const { points, tier, deviation, speedBonus: bonus } = scored;
         const wp = room.players.get(p.id);
         if (wp) {
           wp.totalScore += points;
@@ -313,6 +343,7 @@ class RoomManager {
           guess: timedOut ? null : guess,
           deviation,
           points,
+          speedBonus: bonus,
           tierCode: tier.code,
           tierLabel: tier.label,
           timedOut,
@@ -331,13 +362,23 @@ class RoomManager {
       const [left, right] = room.roundData[room.currentRound];
       const higherSide = left.realPrice >= right.realPrice ? 0 : 1;
       const rows = [...room.players.values()].map((p) => {
-        const pick = room.submissions.get(p.id);
-        const timedOut = pick === undefined;
+        const sub = room.submissions.get(p.id);
+        const timedOut = !sub;
+        const pick = sub?.value;
         const correct = !timedOut && pick === higherSide;
-        const points = correct ? HL_CORRECT_POINTS : 0;
+        const bonus = correct ? speedBonus(HL_CORRECT_POINTS, sub.timeLeft, HIGHER_LOWER_ROUND_SECONDS) : 0;
+        const points = (correct ? HL_CORRECT_POINTS : 0) + bonus;
         const wp = room.players.get(p.id);
         if (wp && points > 0) wp.totalScore += points;
-        return { playerId: p.id, name: p.name, pick: timedOut ? null : pick, correct, points, timedOut };
+        return {
+          playerId: p.id,
+          name: p.name,
+          pick: timedOut ? null : pick,
+          correct,
+          points,
+          speedBonus: bonus,
+          timedOut,
+        };
       });
       rows.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, "tr"));
       rows.forEach((r, i) => (r.rank = i + 1));
@@ -413,6 +454,11 @@ class RoomManager {
     room.displayDisconnectTimer = setTimeout(() => {
       const r = this.getRoom(room.code);
       if (!r || r.displaySocketId) return;
+      if (r.players.size === 0) {
+        this.destroyRoom(r);
+        onRoomUpdate?.({ destroyed: true, code: r.code, reason: "Oda kapandı" });
+        return;
+      }
       if (r.phase === "LOBBY" && r.hostId === DISPLAY_HOST_ID) {
         const next = this.connectedPlayers(r)[0];
         if (next) r.hostId = next.id;
@@ -522,6 +568,7 @@ class RoomManager {
     this._clearDisplayDisconnectTimer(room);
     if (room.displaySocketId) this.socketRoom.delete(room.displaySocketId);
     this.rooms.delete(room.code);
+    this.onDestroyed?.(room);
     for (const p of room.players.values()) {
       this._clearDisconnectTimer(p);
       if (p.socketId) this.socketRoom.delete(p.socketId);

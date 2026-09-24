@@ -62,7 +62,7 @@ export default function MpReveal({ state, reveal }: { state: RoomState; reveal: 
                 <div className="text-right">
                   <div className="text-sm font-display font-bold text-brand tabular-nums">+{r.points}</div>
                   <div className="text-[11px] text-muted">
-                    {r.timedOut ? "—" : `${r.tierCode} · %${r.deviation.toFixed(1)}`}
+                    {r.timedOut ? "Süre doldu" : r.speedBonus > 0 ? `${r.tierLabel} · hız +${r.speedBonus}` : r.tierLabel}
                   </div>
                 </div>
               </div>
@@ -91,8 +91,8 @@ export default function MpReveal({ state, reveal }: { state: RoomState; reveal: 
                 <div className="text-sm text-right">
                   <div className="font-display font-bold text-brand">+{r.points}</div>
                   <div className="text-[11px] text-muted">
-                    {r.timedOut ? "⏱️" : r.correct ? "✅" : "❌"}
-                    {!r.timedOut && ` ${r.pick === 0 ? "Sol" : "Sağ"}`}
+                    {r.timedOut ? "Süre doldu" : r.correct ? (r.speedBonus > 0 ? `Doğru · hız +${r.speedBonus}` : "Doğru") : "Yanlış"}
+                    {!r.timedOut && ` · ${r.pick === 0 ? "Sol" : "Sağ"}`}
                   </div>
                 </div>
               </div>

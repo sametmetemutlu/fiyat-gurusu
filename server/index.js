@@ -1,10 +1,13 @@
 const http = require("http");
 const { Server } = require("socket.io");
 const { RoomManager, REVEAL_SECONDS } = require("./rooms");
+const { Guard, clientIp, corsOrigins } = require("./guard");
 
 const PORT = Number(process.env.PORT || process.env.MP_PORT || 3001);
 const HOST = process.env.MP_HOST || "0.0.0.0";
 const rooms = new RoomManager();
+const guard = new Guard();
+rooms.onDestroyed = (room) => guard.release(room.code);
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
@@ -12,7 +15,8 @@ const server = http.createServer((req, res) => {
 });
 
 const io = new Server(server, {
-  cors: { origin: process.env.MP_CORS_ORIGIN || "*" },
+  cors: { origin: corsOrigins() },
+  maxHttpBufferSize: 16 * 1024,
 });
 
 function broadcastRoom(room) {
@@ -68,17 +72,45 @@ function startRoundTimer(room) {
   }, 1000);
 }
 
+function cleanCode(raw) {
+  return String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function cleanPlayerName(raw) {
+  return typeof raw === "string" ? raw.slice(0, 40) : "Oyuncu";
+}
+
+function cleanSecret(raw) {
+  return typeof raw === "string" ? raw.slice(0, 80) : "";
+}
+
 io.on("connection", (socket) => {
+  const ip = clientIp(socket);
+  if (!guard.allowConnection(ip)) {
+    socket.disconnect(true);
+    return;
+  }
+
   socket.on("create_display_room", (payload, ack) => {
+    if (rooms.getRoomBySocket(socket.id)) {
+      ack?.({ ok: false, error: "Zaten bir odadasın" });
+      return;
+    }
+    const blocked = guard.canCreate(ip, rooms.rooms.size);
+    if (blocked) {
+      ack?.({ ok: false, error: blocked });
+      return;
+    }
     try {
-      const { room } = rooms.createDisplayRoom(socket.id, {
+      const { room, secret } = rooms.createDisplayRoom(socket.id, {
         mode: payload?.mode,
         category: payload?.category,
         rounds: payload?.rounds,
       });
+      guard.track(ip, room.code);
       socket.join(room.code);
       const state = rooms.serialize(room, socket.id);
-      ack?.({ ok: true, state });
+      ack?.({ ok: true, secret, state });
       broadcastRoom(room);
     } catch (e) {
       ack?.({ ok: false, error: e.message || "Monitör odası oluşturulamadı" });
@@ -86,28 +118,42 @@ io.on("connection", (socket) => {
   });
 
   socket.on("reconnect_display", (payload, ack) => {
-    const code = String(payload?.code || "").toUpperCase();
-    const result = rooms.reconnectDisplay(code, socket.id);
+    const blocked = guard.canJoin(ip);
+    if (blocked) {
+      ack?.({ ok: false, error: blocked });
+      return;
+    }
+    const code = cleanCode(payload?.code);
+    const result = rooms.reconnectDisplay(code, socket.id, cleanSecret(payload?.secret));
     if (result.error) {
       ack?.({ ok: false, error: result.error });
       return;
     }
     socket.join(code);
-    ack?.({ ok: true, state: rooms.serialize(result.room, socket.id) });
+    ack?.({ ok: true, secret: result.secret, state: rooms.serialize(result.room, socket.id) });
     broadcastRoom(result.room);
   });
 
   socket.on("create_room", (payload, ack) => {
+    if (rooms.getRoomBySocket(socket.id)) {
+      ack?.({ ok: false, error: "Zaten bir odadasın" });
+      return;
+    }
+    const blocked = guard.canCreate(ip, rooms.rooms.size);
+    if (blocked) {
+      ack?.({ ok: false, error: blocked });
+      return;
+    }
     try {
-      const name = String(payload?.playerName || "Oyuncu");
-      const { room, playerId } = rooms.createRoom(socket.id, name, {
+      const { room, playerId, secret } = rooms.createRoom(socket.id, cleanPlayerName(payload?.playerName), {
         mode: payload?.mode,
         category: payload?.category,
         rounds: payload?.rounds,
       });
+      guard.track(ip, room.code);
       socket.join(room.code);
       const state = rooms.serialize(room, socket.id);
-      ack?.({ ok: true, playerId, state });
+      ack?.({ ok: true, playerId, secret, state });
       broadcastRoom(room);
     } catch (e) {
       ack?.({ ok: false, error: e.message || "Oda oluşturulamadı" });
@@ -115,29 +161,52 @@ io.on("connection", (socket) => {
   });
 
   socket.on("join_room", (payload, ack) => {
-    const code = String(payload?.code || "").toUpperCase();
-    const name = String(payload?.playerName || "Oyuncu");
-    const result = rooms.joinRoom(code, socket.id, name);
+    if (rooms.getRoomBySocket(socket.id)) {
+      ack?.({ ok: false, error: "Zaten bir odadasın" });
+      return;
+    }
+    const blocked = guard.canJoin(ip);
+    if (blocked) {
+      ack?.({ ok: false, error: blocked });
+      return;
+    }
+    const code = cleanCode(payload?.code);
+    const result = rooms.joinRoom(code, socket.id, cleanPlayerName(payload?.playerName));
     if (result.error) {
       ack?.({ ok: false, error: result.error });
       return;
     }
     socket.join(code);
-    ack?.({ ok: true, playerId: result.playerId, state: rooms.serialize(result.room, socket.id) });
+    ack?.({ ok: true, playerId: result.playerId, secret: result.secret, state: rooms.serialize(result.room, socket.id) });
     broadcastRoom(result.room);
   });
 
   socket.on("reconnect_room", (payload, ack) => {
-    const code = String(payload?.code || "").toUpperCase();
-    const playerId = String(payload?.playerId || "");
-    const name = String(payload?.playerName || "");
-    const result = rooms.reconnectRoom(code, socket.id, playerId, name);
+    const blocked = guard.canJoin(ip);
+    if (blocked) {
+      ack?.({ ok: false, error: blocked });
+      return;
+    }
+    const code = cleanCode(payload?.code);
+    const playerId = typeof payload?.playerId === "string" ? payload.playerId.slice(0, 40) : "";
+    const result = rooms.reconnectRoom(
+      code,
+      socket.id,
+      playerId,
+      cleanSecret(payload?.secret),
+      cleanPlayerName(payload?.playerName)
+    );
     if (result.error) {
       ack?.({ ok: false, error: result.error });
       return;
     }
     socket.join(code);
-    ack?.({ ok: true, playerId: result.playerId, state: rooms.serialize(result.room, socket.id) });
+    ack?.({
+      ok: true,
+      playerId: result.playerId,
+      secret: result.secret,
+      state: rooms.serialize(result.room, socket.id),
+    });
     broadcastRoom(result.room);
   });
 
@@ -210,6 +279,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    guard.releaseConnection(ip);
     const result = rooms.disconnect(socket.id, handleRoomEvent);
     if (result?.room) broadcastRoom(result.room);
   });

@@ -34,7 +34,9 @@ gh repo create fiyat-gurusu --public --source=. --push
 5. **Variables** ekle (Vercel URL'ini aldıktan sonra):
    ```
    MP_CORS_ORIGIN=https://SENIN-APP.vercel.app
+   TRUST_PROXY=1
    ```
+   `MP_CORS_ORIGIN` canlıda yalnızca `https://` adresi kabul eder.
 
 Bu URL'yi kopyala → Adım 3'te kullanacaksın.
 
@@ -48,8 +50,11 @@ Bu URL'yi kopyala → Adım 3'te kullanacaksın.
 4. **Environment Variables:**
    ```
    NEXT_PUBLIC_MP_URL=https://fiyat-gurusu-mp-production.up.railway.app
+   ROUND_SECRET=uzun-rastgele-bir-yazi
+   TRUST_PROXY=1
    ```
-   (Railway'den aldığın gerçek URL)
+   `NEXT_PUBLIC_MP_URL` Railway'den aldığın gerçek `https://` adresidir.
+   `ROUND_SECRET` en az 16 karakter olsun; ilan fiyatları bununla mühürlenir.
 5. **Deploy**
 
 ---
