@@ -43,15 +43,19 @@ function handleRoomEvent(result) {
 function scheduleNextRound(room) {
   rooms.clearTimer(room);
   setTimeout(() => {
-    const still = rooms.getRoom(room.code);
-    if (!still || still.phase !== "ROUND_REVEAL") return;
-    const result = rooms.nextRound(still);
-    if (result.startRound) {
-      rooms.beginRound(still);
-      broadcastRoom(still);
-      startRoundTimer(still);
-    } else {
-      broadcastRoom(still);
+    try {
+      const still = rooms.getRoom(room.code);
+      if (!still || still.phase !== "ROUND_REVEAL") return;
+      const result = rooms.nextRound(still);
+      if (result.startRound) {
+        rooms.beginRound(still);
+        broadcastRoom(still);
+        startRoundTimer(still);
+      } else {
+        broadcastRoom(still);
+      }
+    } catch (e) {
+      console.error("tur geçişi başarısız", e);
     }
   }, REVEAL_SECONDS * 1000);
 }
@@ -221,15 +225,19 @@ io.on("connection", (socket) => {
   });
 
   socket.on("start_game", (_payload, ack) => {
-    const result = rooms.startGame(socket.id);
-    if (result.error) {
-      ack?.({ ok: false, error: result.error });
-      return;
+    try {
+      const result = rooms.startGame(socket.id);
+      if (result.error) {
+        ack?.({ ok: false, error: result.error });
+        return;
+      }
+      rooms.beginRound(result.room);
+      ack?.({ ok: true });
+      broadcastRoom(result.room);
+      startRoundTimer(result.room);
+    } catch (e) {
+      ack?.({ ok: false, error: e.message || "İlanlar hazırlanamadı" });
     }
-    rooms.beginRound(result.room);
-    ack?.({ ok: true });
-    broadcastRoom(result.room);
-    startRoundTimer(result.room);
   });
 
   socket.on("play_again", (_payload, ack) => {

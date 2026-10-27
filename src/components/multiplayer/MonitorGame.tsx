@@ -9,6 +9,7 @@ import {
   loadDisplaySession,
   mpBlockedReason,
   saveDisplaySession,
+  type DisplaySession,
   type MpMode,
   type RoomState,
 } from "@/lib/multiplayer";
@@ -28,7 +29,8 @@ export default function MonitorGame() {
   const [state, setState] = useState<RoomState | null>(null);
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
-  const triedReconnect = useRef(false);
+  const [savedRoom, setSavedRoom] = useState<DisplaySession | null>(null);
+  const autoChecked = useRef(false);
 
   const bindSocket = useCallback((s: Socket) => {
     s.on("room_state", (st: RoomState) => {
@@ -40,6 +42,7 @@ export default function MonitorGame() {
       setError(payload.reason);
       setState(null);
       setView("home");
+      setSavedRoom(null);
       clearDisplaySession();
     });
     s.on("connect_error", () => {
@@ -70,30 +73,55 @@ export default function MonitorGame() {
 
   const onRoomReady = (code: string, secret: string, st: RoomState) => {
     saveDisplaySession(code, secret);
+    setSavedRoom(null);
     setState(st);
     setView("room");
+    const url = new URL(window.location.href);
+    url.searchParams.set("oda", code);
+    window.history.replaceState({}, "", url.toString());
   };
 
-  const tryReconnect = useCallback(() => {
-    if (triedReconnect.current) return;
-    const session = loadDisplaySession();
-    if (!session?.code || !session.secret) return;
-
+  const resumeRoom = (session: DisplaySession) => {
     const s = ensureSocket();
     if (!s) return;
-    triedReconnect.current = true;
     setConnecting(true);
+    setError("");
+    s.emit(
+      "reconnect_display",
+      { code: session.code, secret: session.secret },
+      (res: { ok: boolean; error?: string; secret?: string; state?: RoomState }) => {
+        setConnecting(false);
+        if (res?.ok && res.state && res.secret) onRoomReady(session.code, res.secret, res.state);
+        else {
+          clearDisplaySession();
+          setSavedRoom(null);
+          setError(res?.error || "Eski oda kapanmış. Yeni oda açabilirsin.");
+        }
+      }
+    );
+  };
 
-    s.emit("reconnect_display", { code: session.code, secret: session.secret }, (res: { ok: boolean; error?: string; secret?: string; state?: RoomState }) => {
-      setConnecting(false);
-      if (res?.ok && res.state && res.secret) onRoomReady(session.code, res.secret, res.state);
-      else clearDisplaySession();
-    });
-  }, [socket]);
+  const dropSavedRoom = () => {
+    clearDisplaySession();
+    setSavedRoom(null);
+  };
 
   useEffect(() => {
-    if (socket) tryReconnect();
-  }, [socket, tryReconnect]);
+    if (!socket || autoChecked.current) return;
+    autoChecked.current = true;
+    const fromUrl = new URLSearchParams(window.location.search)
+      .get("oda")
+      ?.toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 6);
+    const session = loadDisplaySession();
+    if (!session) return;
+    if (fromUrl && fromUrl === session.code) {
+      resumeRoom(session);
+      return;
+    }
+    setSavedRoom(session);
+  }, [socket]);
 
   const createRoom = () => {
     const s = ensureSocket();
@@ -127,8 +155,11 @@ export default function MonitorGame() {
     socket?.emit("leave_display", {});
     setState(null);
     setView("home");
+    setSavedRoom(null);
     clearDisplaySession();
-    triedReconnect.current = false;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("oda");
+    window.history.replaceState({}, "", url.pathname);
   };
 
   if (view === "room" && state) {
@@ -177,6 +208,26 @@ export default function MonitorGame() {
             TV veya PC&apos;de oyunu göster. Oyuncular telefondan QR ile katılsın, tahminlerini yapsın.
           </p>
         </div>
+
+        {savedRoom && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-3">
+            <p className="text-white/70">
+              Önceki monitör odan duruyor: <b className="font-display tracking-widest text-white">{savedRoom.code}</b>
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => resumeRoom(savedRoom)}
+                disabled={connecting}
+                className="py-3 rounded-xl bg-white/10 font-display font-bold"
+              >
+                Odaya dön
+              </button>
+              <button onClick={dropSavedRoom} className="py-3 rounded-xl bg-white/10 font-display font-bold">
+                Bırak
+              </button>
+            </div>
+          </div>
+        )}
 
         <button
           onClick={createRoom}

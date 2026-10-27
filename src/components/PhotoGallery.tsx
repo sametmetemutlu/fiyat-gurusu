@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { usePhotoCarousel } from "@/hooks/usePhotoCarousel";
 
 export default function PhotoGallery({
@@ -14,21 +13,20 @@ export default function PhotoGallery({
   resetKey?: string;
   className?: string;
 }) {
-  const [broken, setBroken] = useState<Record<number, boolean>>({});
-  const { safeIdx, go } = usePhotoCarousel(photos, resetKey ?? photos[0]);
-
-  const valid = photos.filter((_, i) => !broken[i]);
+  const { safeIdx, go, status, src } = usePhotoCarousel(photos, resetKey ?? photos[0]);
 
   return (
     <div
       className={`relative w-full aspect-[4/3] bg-black/5 rounded-2xl overflow-hidden select-none shadow-sm ${className}`}
     >
-      {photos.length > 0 ? (
+      {src ? (
         <img
-          src={photos[safeIdx]}
+          src={src}
           alt={alt}
-          className="absolute inset-0 w-full h-full object-cover"
-          onError={() => setBroken((b) => ({ ...b, [safeIdx]: true }))}
+          referrerPolicy="no-referrer"
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+            status === "ready" ? "opacity-100" : "opacity-0"
+          }`}
           draggable={false}
         />
       ) : (
@@ -70,9 +68,14 @@ export default function PhotoGallery({
       <div className="absolute top-2 right-2 text-xs bg-black/55 text-white px-2 py-1 rounded-full backdrop-blur">
         {safeIdx + 1}/{photos.length}
       </div>
-      {valid.length === 0 && photos.length > 0 && (
-        <div className="absolute inset-0 z-10 grid place-items-center text-muted bg-black/5">
-          Görsel yüklenemedi
+      {status === "loading" && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center text-sm text-muted">
+          Fotoğraf geliyor…
+        </div>
+      )}
+      {status === "failed" && (
+        <div className="absolute inset-0 z-10 grid place-items-center text-sm text-muted bg-black/5 px-4 text-center">
+          Fotoğraf açılamadı
         </div>
       )}
     </div>

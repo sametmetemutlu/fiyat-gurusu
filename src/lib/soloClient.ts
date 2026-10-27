@@ -3,14 +3,25 @@ import type { CategoryFilter, RoundResult, SealedListing } from "@/lib/game";
 export type SoloCounts = { ALL: number; CAR: number; HOUSE: number };
 
 async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data?.ok) throw new Error(data?.error || "İstek başarısız");
-  return data as T;
+  let lastError = "İstek başarısız";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) return data as T;
+      lastError = data?.error || "İstek başarısız";
+      if (res.status < 500 && res.status !== 429) break;
+    } catch {
+      lastError = "Bağlantı koptu";
+    }
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(lastError);
 }
 
 export function fetchCounts(): Promise<{ ok: true; counts: SoloCounts }> {

@@ -65,8 +65,8 @@ export default function Game({ onExit }: { onExit?: () => void }) {
         setGuess(midOf(q[0]));
         setScreen("playing");
       }
-    } catch {
-      setScoreError("İlanlar yüklenemedi");
+    } catch (err) {
+      setScoreError(err instanceof Error && err.message ? err.message : "İlanlar yüklenemedi");
     } finally {
       setStarting(false);
     }
@@ -87,9 +87,9 @@ export default function Game({ onExit }: { onExit?: () => void }) {
       setResult(data.result);
       if (!fromTimeout) setTotalScore((s) => s + data.result.score);
       setScreen("result");
-    } catch {
+    } catch (err) {
       lockedRef.current = false;
-      setScoreError("Puan hesaplanamadı, tekrar dene");
+      setScoreError(err instanceof Error && err.message ? err.message : "Puan hesaplanamadı, tekrar dene");
     }
   }, [current, guess, screen]);
 

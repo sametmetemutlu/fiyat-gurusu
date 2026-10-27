@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { clearDisplaySession, clearMpSession } from "@/lib/multiplayer";
 
 export interface Profile {
   name: string;
@@ -26,6 +27,8 @@ export function saveProfile(p: Profile) {
 
 export function clearProfile() {
   localStorage.removeItem(KEY);
+  clearMpSession();
+  clearDisplaySession();
   window.dispatchEvent(new Event("fg_profile_change"));
 }
 

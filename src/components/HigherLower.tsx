@@ -37,6 +37,7 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
   const [error, setError] = useState("");
   const timeLeftRef = useRef(HIGHER_LOWER_ROUND_SECONDS);
   const lockedRef = useRef(false);
+  const playedRef = useRef(false);
 
   useEffect(() => {
     setBest(Number(localStorage.getItem("fg_hl_best") || 0));
@@ -52,10 +53,11 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
     try {
       const data = await dealPair(f);
       setPair(data.pair);
+      playedRef.current = true;
       setPhase("playing");
     } catch {
-      setError("İlan hazırlanamadı");
-      setPhase("menu");
+      setError("Bağlantı koptu, tekrar dene");
+      if (!playedRef.current) setPhase("menu");
     } finally {
       setBusy(false);
     }
@@ -65,6 +67,7 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
     setFilter(f);
     setStreak(0);
     setPoints(0);
+    playedRef.current = false;
     setPhase("playing");
     loadPair(f);
   };
@@ -202,16 +205,31 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
 
   if (!pair) {
     return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center text-muted">
-        {busy ? "İlan geliyor…" : error || "İlan hazırlanamadı"}
+      <div className="max-w-md mx-auto px-4 py-16 text-center space-y-4">
+        <p className="text-muted">{busy ? "İlan geliyor…" : error || "İlan hazırlanamadı"}</p>
+        {!busy && (
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => loadPair(filter)} className="fg-btn fg-btn-gold">
+              Tekrar dene
+            </button>
+            <button onClick={() => setPhase("menu")} className="fg-btn fg-btn-ghost">
+              Menü
+            </button>
+          </div>
+        )}
+        {playedRef.current && (
+          <p className="text-sm text-muted">
+            {points} puan · {streak} seri duruyor
+          </p>
+        )}
       </div>
     );
   }
 
   // ---------- PLAYING / REVEALED ----------
   return (
-    <div className="max-w-md mx-auto px-4 py-4">
-      <div className="flex items-center justify-between text-sm mb-3">
+    <div className="w-full max-w-md mx-auto px-4 py-4 lg:max-w-6xl lg:flex-1 lg:min-h-0 lg:h-full lg:px-6 lg:py-3 lg:flex lg:flex-col">
+      <div className="flex items-center justify-between text-sm mb-3 shrink-0">
         <button onClick={() => setPhase("menu")} className="font-semibold text-muted hover:text-foreground">
           ‹ Çık
         </button>
@@ -225,10 +243,10 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
         </div>
       </div>
 
-      <p className="text-center text-foreground mb-3 font-semibold">Hangisi daha pahalı?</p>
+      <p className="text-center text-foreground mb-3 font-semibold shrink-0 lg:text-lg">Hangisi daha pahalı?</p>
 
       {phase === "playing" && (
-        <div className="mb-3">
+        <div className="mb-3 shrink-0">
           <RoundTimer
             remaining={timer.remaining}
             progress={timer.progress}
@@ -238,7 +256,7 @@ export default function HigherLower({ onExit }: { onExit?: () => void }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:gap-5 lg:flex-1 lg:min-h-0">
         {pair.map((l, i) => (
           <CompareCard
             key={l.id}
@@ -286,7 +304,7 @@ function CompareCard({
   onClick: () => void;
 }) {
   const photos = listing.photos;
-  const { safeIdx, go } = usePhotoCarousel(photos, listing.id);
+  const { safeIdx, go, status, src } = usePhotoCarousel(photos, listing.id);
 
   const exp = expertiseInfo(listing);
   const chips = chipsFor(listing)
@@ -316,21 +334,32 @@ function CompareCard({
           onClick();
         }
       }}
-      className={`relative rounded-2xl overflow-hidden bg-card shadow-sm text-left transition ${
+      className={`relative rounded-2xl overflow-hidden bg-card shadow-sm text-left transition lg:h-full lg:flex lg:flex-col ${
         revealed ? "cursor-default" : "cursor-pointer active:scale-[0.98]"
       } ${ring}`}
     >
-      <div className="relative w-full aspect-[4/3] bg-black/5">
-        {photos[safeIdx] ? (
+      <div className="relative w-full aspect-[4/3] bg-black/5 lg:aspect-auto lg:flex-1 lg:min-h-0">
+        {src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={photos[safeIdx]}
+            src={src}
             alt={CATEGORY_LABELS[listing.category]}
-            className="absolute inset-0 w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+              status === "ready" ? "opacity-100" : "opacity-0"
+            }`}
             draggable={false}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-muted text-xs">Görsel yok</div>
+        )}
+        {status === "loading" && (
+          <div className="absolute inset-0 grid place-items-center text-xs text-muted">Fotoğraf geliyor…</div>
+        )}
+        {status === "failed" && (
+          <div className="absolute inset-0 grid place-items-center text-xs text-muted px-2 text-center">
+            Fotoğraf açılamadı
+          </div>
         )}
         <span className="absolute top-2 left-2 text-[11px] bg-black/55 text-white px-2 py-0.5 rounded-full backdrop-blur">
           {CATEGORY_LABELS[listing.category]}
@@ -368,14 +397,14 @@ function CompareCard({
           </div>
         )}
       </div>
-      <div className="p-2.5 space-y-1">
+      <div className="p-2.5 lg:p-4 space-y-1 shrink-0">
         {chips.map((c, i) => (
-          <div key={i} className="text-[11px] text-muted truncate">
+          <div key={i} className="text-[11px] lg:text-sm text-muted truncate">
             {c.icon} {c.label}
           </div>
         ))}
         {exp && (
-          <div className="text-[11px] text-muted truncate" title={exp.label}>
+          <div className="text-[11px] lg:text-sm text-muted truncate" title={exp.label}>
             {exp.icon} {exp.label}
           </div>
         )}

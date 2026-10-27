@@ -38,7 +38,7 @@ export default function MpHigherLowerRound({
   };
 
   return (
-    <div className="max-w-md mx-auto px-4 py-4">
+    <div className="w-full max-w-md mx-auto px-4 py-4 lg:max-w-6xl lg:flex-1 lg:min-h-0 lg:h-full lg:px-6 lg:py-3 lg:flex lg:flex-col">
       <div className="flex items-center justify-between text-sm mb-3">
         <span className="px-2.5 py-1 rounded-full bg-black/[0.05] text-foreground font-medium">
           Tur {state.currentRound}/{state.totalRounds}
@@ -89,7 +89,7 @@ export default function MpHigherLowerRound({
           </button>
         </div>
       ) : pair ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:gap-5 lg:flex-1 lg:min-h-0">
           {pair.map((l, i) => (
             <CompareCard
               key={l.id}
@@ -114,7 +114,7 @@ function CompareCard({
   onClick: () => void;
 }) {
   const photos = listing.photos;
-  const { safeIdx, go } = usePhotoCarousel(photos, listing.id);
+  const { safeIdx, go, status, src } = usePhotoCarousel(photos, listing.id);
 
   const exp = expertiseInfo(listing);
   const chips = chipsFor(listing)
@@ -131,21 +131,32 @@ function CompareCard({
       role="button"
       tabIndex={disabled ? -1 : 0}
       onClick={disabled ? undefined : onClick}
-      className={`relative rounded-2xl overflow-hidden bg-card shadow-sm text-left ring-1 ring-black/10 transition ${
+      className={`relative rounded-2xl overflow-hidden bg-card shadow-sm text-left ring-1 ring-black/10 transition lg:h-full lg:flex lg:flex-col ${
         disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:ring-2 hover:ring-gold active:scale-[0.98]"
       }`}
     >
-      <div className="relative w-full aspect-[4/3] bg-black/5">
-        {photos[safeIdx] ? (
+      <div className="relative w-full aspect-[4/3] bg-black/5 lg:aspect-auto lg:flex-1 lg:min-h-0">
+        {src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={photos[safeIdx]}
+            src={src}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+              status === "ready" ? "opacity-100" : "opacity-0"
+            }`}
             draggable={false}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-muted text-xs">Görsel yok</div>
+        )}
+        {status === "loading" && (
+          <div className="absolute inset-0 grid place-items-center text-xs text-muted">Fotoğraf geliyor…</div>
+        )}
+        {status === "failed" && (
+          <div className="absolute inset-0 grid place-items-center text-xs text-muted px-2 text-center">
+            Fotoğraf açılamadı
+          </div>
         )}
         <span className="absolute top-2 left-2 text-[11px] bg-black/55 text-white px-2 py-0.5 rounded-full">
           {CATEGORY_LABELS[listing.category]}
@@ -169,14 +180,14 @@ function CompareCard({
           </>
         )}
       </div>
-      <div className="p-2.5 space-y-1">
+      <div className="p-2.5 lg:p-4 space-y-1 shrink-0">
         {chips.map((c, i) => (
-          <div key={i} className="text-[11px] text-muted truncate">
+          <div key={i} className="text-[11px] lg:text-sm text-muted truncate">
             {c.icon} {c.label}
           </div>
         ))}
         {exp && (
-          <div className="text-[11px] text-muted truncate">
+          <div className="text-[11px] lg:text-sm text-muted truncate">
             {exp.icon} {exp.label}
           </div>
         )}

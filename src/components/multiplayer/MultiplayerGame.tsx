@@ -14,6 +14,7 @@ import {
   roomInviteUrl,
   saveMpSession,
   type MpMode,
+  type MpSession,
   type RoomState,
 } from "@/lib/multiplayer";
 import type { CategoryFilter } from "@/lib/game";
@@ -34,7 +35,8 @@ export default function MultiplayerGame() {
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const triedReconnect = useRef(false);
+  const [savedRoom, setSavedRoom] = useState<MpSession | null>(null);
+  const autoChecked = useRef(false);
 
   const playerName = profile?.name || "Misafir";
 
@@ -48,17 +50,12 @@ export default function MultiplayerGame() {
       setError(payload.reason);
       setState(null);
       setView("home");
+      setSavedRoom(null);
       clearMpSession();
     });
     s.on("connect_error", () => {
       setError("Sunucuya bağlanılamadı. Terminalde: npm run dev:mp");
     });
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get("oda")?.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    if (fromUrl) setJoinCode(fromUrl);
   }, []);
 
   useEffect(() => {
@@ -84,6 +81,7 @@ export default function MultiplayerGame() {
 
   const onRoomJoined = (code: string, playerId: string, secret: string, st?: RoomState) => {
     saveMpSession(code, playerId, secret);
+    setSavedRoom(null);
     if (st) {
       setState(st);
       setView("room");
@@ -93,34 +91,50 @@ export default function MultiplayerGame() {
     window.history.replaceState({}, "", url.toString());
   };
 
-  const tryReconnect = useCallback(() => {
-    if (triedReconnect.current || !profile) return;
-    const session = loadMpSession();
-    if (!session?.playerId || !session.code || !session.secret) return;
-    if (joinCode && joinCode !== session.code) return;
-
+  const resumeRoom = (session: MpSession) => {
     const s = ensureSocket();
     if (!s) return;
-    triedReconnect.current = true;
     setConnecting(true);
-
+    setError("");
     s.emit(
       "reconnect_room",
       { code: session.code, playerId: session.playerId, secret: session.secret, playerName },
       (res: { ok: boolean; error?: string; playerId?: string; secret?: string; state?: RoomState }) => {
         setConnecting(false);
         if (res?.ok && res.state && res.secret) {
+          setSavedRoom(null);
           onRoomJoined(session.code, res.playerId || session.playerId, res.secret, res.state);
         } else {
           clearMpSession();
+          setSavedRoom(null);
+          setError(res?.error || "Eski oda kapanmış. Yeni oda kurabilirsin.");
         }
       }
     );
-  }, [joinCode, playerName, profile]);
+  };
+
+  const dropSavedRoom = () => {
+    clearMpSession();
+    setSavedRoom(null);
+  };
 
   useEffect(() => {
-    if (ready && profile && socket) tryReconnect();
-  }, [ready, profile, socket, tryReconnect]);
+    if (!ready || !profile || !socket || autoChecked.current) return;
+    autoChecked.current = true;
+    const fromUrl = new URLSearchParams(window.location.search)
+      .get("oda")
+      ?.toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 6);
+    if (fromUrl) setJoinCode(fromUrl);
+    const session = loadMpSession();
+    if (!session) return;
+    if (fromUrl && fromUrl === session.code) {
+      resumeRoom(session);
+      return;
+    }
+    setSavedRoom(session);
+  }, [ready, profile, socket]);
 
   const createRoom = () => {
     const s = ensureSocket();
@@ -172,8 +186,8 @@ export default function MultiplayerGame() {
     setState(null);
     setView("home");
     setJoinCode("");
+    setSavedRoom(null);
     clearMpSession();
-    triedReconnect.current = false;
     const url = new URL(window.location.href);
     url.searchParams.delete("oda");
     window.history.replaceState({}, "", url.pathname);
@@ -259,6 +273,22 @@ export default function MultiplayerGame() {
           Arkadaşlarınla oda kur, aynı ilanları tahmin et. Max <b className="text-foreground">10 kişi</b>.
         </p>
       </div>
+
+      {savedRoom && (
+        <div className="fg-card p-5 space-y-3">
+          <p className="text-sm text-muted text-center">
+            Önceki odan duruyor: <b className="font-display tracking-widest text-foreground">{savedRoom.code}</b>
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={() => resumeRoom(savedRoom)} disabled={connecting} className="fg-btn fg-btn-ghost">
+              Odaya dön
+            </button>
+            <button onClick={dropSavedRoom} className="fg-btn fg-btn-ghost">
+              Bırak
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="fg-card p-6 space-y-4">
         <p className="text-sm text-muted text-center">

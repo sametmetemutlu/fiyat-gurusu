@@ -74,7 +74,7 @@ export default function MonitorHigherLower({
 
 function MonitorCard({ listing, side }: { listing: Listing; side: string }) {
   const photos = listing.photos;
-  const { safeIdx, go } = usePhotoCarousel(photos, listing.id);
+  const { safeIdx, go, status, src } = usePhotoCarousel(photos, listing.id);
   const chips = chipsFor(listing).slice(0, 5);
   const exp = expertiseInfo(listing);
 
@@ -87,16 +87,25 @@ function MonitorCard({ listing, side }: { listing: Listing; side: string }) {
     <div className="rounded-3xl overflow-hidden bg-white/5 border border-white/10">
       <div className="px-4 py-2 bg-white/10 font-display font-extrabold text-xl text-center">{side}</div>
       <div className="relative w-full aspect-[4/3] bg-black/30">
-        {photos[safeIdx] ? (
+        {src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={photos[safeIdx]}
+            src={src}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+              status === "ready" ? "opacity-100" : "opacity-0"
+            }`}
             draggable={false}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-white/40">Görsel yok</div>
+        )}
+        {status === "loading" && (
+          <div className="absolute inset-0 grid place-items-center text-sm text-white/60">Fotoğraf geliyor…</div>
+        )}
+        {status === "failed" && (
+          <div className="absolute inset-0 grid place-items-center text-sm text-white/60">Fotoğraf açılamadı</div>
         )}
         <span className="absolute top-3 left-3 text-sm bg-black/60 text-white px-3 py-1 rounded-full">
           {CATEGORY_LABELS[listing.category]}
